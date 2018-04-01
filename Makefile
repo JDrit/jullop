@@ -1,5 +1,5 @@
 CC=clang
-CFLAGS=-c -Wall -Wextra
+CFLAGS=-c -Wall -Wextra -DDEBUG
 EXECUTABLE=jullop
 LDFLAGS=
 SOURCES=main.c
