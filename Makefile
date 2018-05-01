@@ -1,5 +1,6 @@
 CC=clang
-CFLAGS=-c -Wall -Wextra -DDEBUG
+CFLAGS=-c -g -Wall -Wextra -DDEBUG
+LIBS=
 EXECUTABLE=jullop
 LDFLAGS=
 SOURCES=main.c
@@ -8,10 +9,10 @@ OBJECTS=$(SOURCES:.c=.o)
 all: $(SOURCES) $(EXECUTABLE)
 
 $(EXECUTABLE): $(OBJECTS)
-	$(CC) $(LDFLAGS) $(OBJECTS) -o $@
+	$(CC) $(LDFLAGS) $(LIBS) $(OBJECTS) -o $@
 
 .c.o:
-	$(CC) $(CFLAGS) $< -o $@
+	$(CC) $(CFLAGS) $(LIBS) $< -o $@
 
 clean:
 	rm *.o

@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -18,76 +20,94 @@
 #define DEBUG_PRINT(fmt, args...)
 #endif
 
+#define CHECK(x, msg) ({ \
+  int ret_val = x; \
+  if (ret_val == -1) { \
+    fprintf(stderr, ">>> Error on line %d of file %s\n", __LINE__, __FILE__); \
+    perror(msg); \
+    exit(EXIT_FAILURE); \
+  } \
+  ret_val; \
+})
+
 void set_sock_opt(int sock, int level, int opt_name) {
   int opt = 1;
-  if (setsockopt(sock, level, opt_name, &opt, sizeof(opt))) {
-    perror("setsockopt");
-    exit(EXIT_FAILURE);
-  }
+  CHECK(setsockopt(sock, level, opt_name, &opt, sizeof(opt)), "setsockopt");  
 }
 
 int create_socket() {
-  int sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-  if (sock == -1) {
-    perror("getting socket");
-    exit(EXIT_FAILURE);
-  }
+  int opt = 1;
+  int sock = CHECK(socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0), "getting socket");
 
   // allows reusing of the same address and port
-  set_sock_opt(sock, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT);
+  CHECK(setsockopt(sock, SOL_SOCKET, SO_REUSEPORT | SO_REUSEADDR, &opt, sizeof(opt)), "sock opt");
   // all writes should send packets right away
-  set_sock_opt(sock, SOL_TCP, TCP_NODELAY);
+  CHECK(setsockopt(sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt)), "tcp no delay");
 
   struct sockaddr_in address;
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = INADDR_ANY;
   address.sin_port = htons(PORT);
 
-  if (bind(sock, (struct sockaddr*) &address, sizeof(address)) == -1) {
-    perror("bind failure");
-    exit(EXIT_FAILURE);
-  }
-
+  CHECK(bind(sock, (struct sockaddr*) &address, sizeof(address)), "bind failure");
   DEBUG_PRINT("socket bind complete\n");
-
-  if (listen(sock, QUEUE_LENGTH) == -1) {
-    perror("listen");
-    exit(EXIT_FAILURE);
-  }
+  CHECK(listen(sock, QUEUE_LENGTH), "socket listen");
   DEBUG_PRINT("listening on %d\n", PORT);
   
   return sock;
 }
 
-int main(int argc, char* argv[]) {
-  DEBUG_PRINT("starting up...\n");
+/**
+ * Opens up the waiting connection from the given socket.
+ */
+int process_accept(int sock_fd) {
+
+  struct sockaddr_in in_addr;
+  socklen_t size = sizeof(in_addr);
+  int conn_sock = CHECK(accept(sock_fd, (struct sockaddr *) &in_addr, &size), "accept");
+  fcntl(conn_sock, F_SETFL, O_NONBLOCK);
+  DEBUG_PRINT("new request from %d:%d\n", in_addr.sin_addr.s_addr, in_addr.sin_port);
+  return conn_sock;
+}
+
+/**
+ * Runs the event loop and listens for connections on the given socket.
+ */
+void event_loop(int sock_fd) {
+  int epoll_fd = CHECK(epoll_create(1), "epoll");
 
   struct epoll_event event;
-  struct epoll_event *events;
+  event.data.fd = sock_fd;
+  event.events = EPOLLIN;
 
+  CHECK(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock_fd, &event), "epoll control");
+  
+  struct epoll_event events[MAX_EVENTS];
+
+  while (1) {
+    int ready_amount = CHECK(epoll_wait(epoll_fd, events, MAX_EVENTS, -1), "epoll wait");
+
+    for (int i = 0 ; i < ready_amount ; i++) {
+      if (events[i].data.fd == sock_fd) {
+	int conn_fd = process_accept(sock_fd);
+	event.events = EPOLLIN;
+	event.data.fd = conn_fd;
+	CHECK(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &event), "epoll control");
+      } else {
+	int fd = events[i].data.fd;
+	char buffer[128];
+	size_t count = read(fd, buffer, sizeof(buffer));
+	DEBUG_PRINT("read %zu bytes\n", count);
+	write(0, buffer, count);
+	epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
+      }
+    }
+  }  
+}
+
+
+int main(int argc, char* argv[]) {
+  DEBUG_PRINT("starting up...\n");
   int sock_fd = create_socket();
-  int epoll_fd = epoll_create(1);
-  if (epoll_fd == -1) {
-    perror("epoll");
-    exit(EXIT_FAILURE);
-  }
-
-  event.data.fd = epoll_fd;
-  event.events = EPOLLIN | EPOLLET;
-
-  if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock_fd, &event) == -1) {
-    perror("epoll_ctl");
-    exit(EXIT_FAILURE);
-  }
-
-  int events = calloc(MAX_EVENTS, sizeof(event));
-  int ready_amount = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
-  int fd = accept(sock_fd, NULL, 0);
-
-
-
-  printf("%d\n", fd);
-  
-  
-    
+  event_loop(sock_fd);
 }
