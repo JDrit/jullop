@@ -1,9 +1,9 @@
 CC=clang
-CFLAGS=-c -g -Wall -Wextra -DDEBUG
+CFLAGS=-c -g -Wall -Wextra -Wconversion -DDEBUG
 LIBS=
 EXECUTABLE=jullop
 LDFLAGS=
-SOURCES=main.c
+SOURCES=main.c request_context.c
 OBJECTS=$(SOURCES:.c=.o)
 
 all: $(SOURCES) $(EXECUTABLE)
