@@ -47,29 +47,32 @@ int create_socket() {
 }
 
 /**
- * Opens up the waiting connection from the given socket.
+ * Opens up the waiting connection from the given socket. Returns
+ * the request context that will be used to handle this request.
  */
-int process_accept(int sock_fd) {
+RequestContext* process_accept(int sock_fd) {
   struct sockaddr_in in_addr;
   socklen_t size = sizeof(in_addr);
   int conn_sock = accept(sock_fd, (struct sockaddr *) &in_addr, &size);
   CHECK(conn_sock == -1, "failed to accept connection");
   fcntl(conn_sock, F_SETFL, O_NONBLOCK);
 
-  char hbuf[NI_MAXHOST];
+  char* hbuf = (char*) CHECK_MEM(calloc(NI_MAXHOST, sizeof(char)));
   char sbuf[NI_MAXSERV];
 
-  int r = getnameinfo(&in_addr, size, hbuf, sizeof(hbuf), sbuf,
+  int r = getnameinfo(&in_addr, size, hbuf, NI_MAXHOST * sizeof(char), sbuf,
 		      sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV);
   CHECK(r == -1, "Failed to get host name");
   
   LOG_DEBUG("new request from %s:%s", hbuf, sbuf);
-  return conn_sock;
+  return init_request_context(conn_sock, hbuf);
 }
 
 void close_request(struct epoll_event *event) {
-  close(rc_get_fd((RequestContext*) event->data.ptr));
-  destroy_request_context((RequestContext*) event->data.ptr);  
+  RequestContext *context = (RequestContext*) event->data.ptr;
+  LOG_INFO("Closing request to %s", rc_get_remote_host(context));
+  close(rc_get_fd(context));
+  destroy_request_context(context);
 }
 
 /**
@@ -90,32 +93,6 @@ int handle_poll_errors(struct epoll_event *event) {
   }
 }
 
-void read_socket(struct epoll_event *event) {
-  int fd = rc_get_fd((RequestContext*) event->data.ptr);
-  char buffer[256];
-  int done = 0;
-  
-  while (1) {
-    ssize_t count = read(fd, buffer, sizeof(buffer));
-    LOG_ERROR("Read %zd from fd %d", count, fd);
-    if (count == -1) {
-      if (errno != EAGAIN) {
-	done = 1;
-      }
-      break;
-    } else if (count == 0) {
-      done = 1;
-      break;
-    }
-    
-    write(1, buffer, count);
-  }
-
-  if (done) {
-    LOG_INFO("Connection closed on fd %d", fd);
-    close_request(event);
-  }
-}
 
 /**
  * Runs the event loop and listens for connections on the given socket.
@@ -139,17 +116,56 @@ void event_loop(int sock_fd) {
     for (int i = 0 ; i < ready_amount ; i++) {
       if (handle_poll_errors(&events[i]) != 0) {
 	continue;
-      } else if (events[i].data.fd == sock_fd) {
-	int conn_fd = process_accept(sock_fd);
-	
+      }
+      if (events[i].data.fd == sock_fd) {
+	RequestContext *context = process_accept(sock_fd);
 	event.events = EPOLLIN;
-	event.data.ptr = init_request_context(conn_fd);
-	
+	event.data.ptr = context;
+
+	int conn_fd = rc_get_fd(context);
 	CHECK(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &event) == -1,
 	      "epoll control");
+	continue;
+      }
 
-      } else if (events[i].events & EPOLLIN) {	
-	read_socket(&events[i]);
+      if (events[i].events & EPOLLIN) {
+	RequestContext *context = (RequestContext*) events[i].data.ptr;
+	enum Read_State state = rc_fill_input_buffer(context);
+	LOG_DEBUG("Read state for %s, %s", rc_get_remote_host(context),
+		  read_state_name(state));
+	
+	if (state == READ_ERROR || state == CLIENT_DISCONNECT) {
+	  close_request(&events[i]);
+	} else {
+	  // template output message
+	  char *buf = (char*) CHECK_MEM(calloc(256, sizeof(char)));
+	  sprintf(buf, "HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\nHello World", 11);
+	  rc_set_output_buffer(context, buf, strlen(buf));
+
+	  int fd = rc_get_fd(context);
+	  event.data.ptr = context;
+	  event.events = events[i].events | EPOLLOUT;
+	  CHECK(epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &event) == -1,
+		"epoll control");
+	}
+      }
+
+      if (events[i].events & EPOLLOUT) {
+	RequestContext *context = (RequestContext*) events[i].data.ptr;
+	enum Write_State state = rc_write_output(context);
+
+	switch (state) {
+	  case BUSY:
+	    LOG_DEBUG("socket busy");
+	    break;
+	  case ERROR:
+	    LOG_ERROR("error writing output");
+	    close_request(&events[i]);
+	    break;
+  	  case FINISH:
+	    LOG_INFO("successfully finished writing response");
+	    close_request(&events[i]);
+	}
       }
     }
   }  

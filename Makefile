@@ -1,5 +1,5 @@
 CC=clang
-CFLAGS=-c -g -Wall -Wextra -Wconversion -DDEBUG
+CFLAGS=-c -g -O0 -Wall -Wextra -Wconversion -DDEBUG
 LIBS=
 EXECUTABLE=jullop
 LDFLAGS=
