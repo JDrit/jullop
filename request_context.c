@@ -63,6 +63,8 @@ enum Read_State rc_fill_input_buffer(RequestContext *context) {
 
     if (num_read == -1) {
       if (errno == EAGAIN) {
+	// resets the error condition since it is being handled.
+	errno = 0;
 	return NO_MORE_DATA;
       } else {
 	return READ_ERROR;
@@ -84,6 +86,8 @@ enum Write_State rc_write_output(RequestContext *context) {
 
     if (num_written <= 0) {
       if (errno == EAGAIN) {
+	// resets the error condition since it is being handled.
+	errno = 0;
 	return BUSY;
       } else {
 	return ERROR;

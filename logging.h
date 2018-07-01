@@ -7,24 +7,37 @@
 
 #ifdef DEBUG
 
-#define LOG_DEBUG(M, ...) \
-  fprintf(stderr, "[DEBUG]\t(%s:%d):\t" M "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#define CLEAN_ERRNO() (errno == 0 ? "None" : strerror(errno))
+
+#define LOG(level, M, ...) {				       \
+  char __buffer[35];					       \
+  snprintf(__buffer, sizeof(__buffer), "[" level "]\t(%s:%d)", \
+	   __FILE__, __LINE__);				       \
+  fprintf(stderr, "%-35s" M "\n", __buffer, ##__VA_ARGS__);    \
+  }
+
+#define ERR_LOG(level, M, ...) {				\
+  char __buffer[35];						\
+  snprintf(__buffer, sizeof(__buffer),				\
+	   "[" level "]\t(%s:%d)", __FILE__, __LINE__);		\
+  if (errno == 0) {						\
+    fprintf(stderr, "%-35s" M "\n", __buffer, ##__VA_ARGS__);	\
+  } else { 							\
+    fprintf(stderr, "%-35s(errno: %d %s) " M "\n", __buffer,	\
+	    errno, CLEAN_ERRNO(), ##__VA_ARGS__);		\
+  }								\
+  }
+
+#define LOG_DEBUG(M, ...) LOG("DEBUG", M, ##__VA_ARGS__);		       
 #else
 #define LOG_DEBUG(M, ...)
 #endif
 
-#define CLEAN_ERRNO() (errno == 0 ? "None" : strerror(errno))
+#define LOG_INFO(M, ...) LOG("INFO ", M, ##__VA_ARGS__); 
 
-#define LOG_ERROR(M, ...) \
-  fprintf(stderr, "[ERROR]\t(%s:%d: errno: %s) " M "\n", __FILE__,	\
-	  __LINE__, CLEAN_ERRNO(), ##__VA_ARGS__)
+#define LOG_WARN(M, ...) ERR_LOG("WARN ", M, ##__VA_ARGS__);
 
-#define LOG_WARN(M, ...) \
-  fprintf(stderr, "[WARN]\t(%s:%d: errno: %d %s) " M "\n", __FILE__,	\
-	  __LINE__, errno, CLEAN_ERRNO(), ##__VA_ARGS__)
-
-#define LOG_INFO(M, ...) \
-  fprintf(stderr, "[INFO]\t(%s:%d):\t" M "\n", __FILE__, __LINE__, ##__VA_ARGS__)
+#define LOG_ERROR(M, ...) ERR_LOG("ERROR", M, ##__VA_ARGS__);
 
 #define CHECK(A, M, ...) \
   if((A)) {				    \
