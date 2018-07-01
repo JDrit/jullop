@@ -1,22 +1,25 @@
 #ifndef __request_context_h__
 #define __request_context_h__
 
+#include "http_request.h"
+
 struct RequestContext;
 typedef struct RequestContext RequestContext;
 
-enum Read_State {
-  NO_MORE_DATA,
+enum ReadState {
+  READ_FINISH,
+  READ_BUSY,
   READ_ERROR,
   CLIENT_DISCONNECT
 };
 
-enum Write_State {
-  FINISH,
-  BUSY,
-  ERROR
+enum WriteState {
+  WRITE_FINISH,
+  WRITE_BUSY,
+  WRITE_ERROR
 };
 
-char* read_state_name(enum Read_State);
+char* read_state_name(enum ReadState);
 
 RequestContext* init_request_context(int fd, char* host_name);
 
@@ -24,13 +27,15 @@ int rc_get_fd(RequestContext *context);
 
 char* rc_get_remote_host(RequestContext *context);
 
+HttpRequest* rc_get_http_request(RequestContext *context);
+
 /**
  * Reads the file descriptor associated with the given context
  * and tries to read as much of the data into the buffer.
  *
  * Returns an enum to indicate the outcome of the read operations.
  */
-enum Read_State rc_fill_input_buffer(RequestContext *context);
+enum ReadState rc_fill_input_buffer(RequestContext *context);
 
 /**
  * Sets the buffer that will be sent to the client.
@@ -44,7 +49,7 @@ void rc_set_output_buffer(RequestContext *context, char* buffer, size_t output_s
  * There is undefinied behavior when an output buffer has not been set before
  * this has been called.
  */
-enum Write_State rc_write_output(RequestContext *context);
+enum WriteState rc_write_output(RequestContext *context);
 
 void destroy_request_context(RequestContext *context);
 

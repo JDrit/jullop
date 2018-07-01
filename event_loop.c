@@ -30,6 +30,13 @@ struct EventLoop {
   struct Stats stats;
 };
 
+void print_stats(EventLoop *event_loop) {
+  LOG_DEBUG("selector stats");
+  LOG_DEBUG("\tfd=%d", event_loop->accept_fd);
+  LOG_DEBUG("\tactive_connections=%d", event_loop->stats.active_connections);
+  LOG_DEBUG("\ttotal_requests=%d", event_loop->stats.total_requests_processed);
+}
+
 void close_request(EventLoop *event_loop, struct epoll_event *event) {
   event_loop->stats.active_connections--;
   RequestContext *context = (RequestContext*) event->data.ptr;
@@ -104,10 +111,7 @@ void event_loop(EventLoop *event_loop) {
   struct epoll_event events[MAX_EVENTS];
 
   while (1) {
-    LOG_DEBUG("stats: fd=%d active_connections=%d total_requests=%d",
-	      event_loop->accept_fd,
-	      event_loop->stats.active_connections,
-	      event_loop->stats.total_requests_processed);
+    print_stats(event_loop);
     
     int ready_amount = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
     CHECK(ready_amount == -1, "failed waiting on epoll");
@@ -129,39 +133,49 @@ void event_loop(EventLoop *event_loop) {
 
       if (events[i].events & EPOLLIN) {
 	RequestContext *context = (RequestContext*) events[i].data.ptr;
-	enum Read_State state = rc_fill_input_buffer(context);
+	enum ReadState state = rc_fill_input_buffer(context);
 	LOG_DEBUG("Read state for %s, %s", rc_get_remote_host(context),
 		  read_state_name(state));
-	
-	if (state == READ_ERROR || state == CLIENT_DISCONNECT) {
-	  close_request(event_loop, &events[i]);
-	} else {
+
+	switch (state) {
+	case READ_FINISH: {
 	  // template output message
 	  char *buf = (char*) CHECK_MEM(calloc(256, sizeof(char)));
 	  sprintf(buf, "HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\nHello World", 11);
 	  rc_set_output_buffer(context, buf, strlen(buf));
+
+	  HttpRequest *request = rc_get_http_request(context);
+	  http_request_print(request);
 
 	  int fd = rc_get_fd(context);
 	  event.data.ptr = context;
 	  event.events = events[i].events | EPOLLOUT;
 	  CHECK(epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &event) == -1,
 		"epoll control");
+	  break;
+	}
+	case READ_ERROR:
+	case CLIENT_DISCONNECT:
+	  close_request(event_loop, &events[i]);
+	  break;
+	case READ_BUSY:
+	  break;
 	}
       }
 
       if (events[i].events & EPOLLOUT) {
 	RequestContext *context = (RequestContext*) events[i].data.ptr;
-	enum Write_State state = rc_write_output(context);
+	enum WriteState state = rc_write_output(context);
 
 	switch (state) {
-	  case BUSY:
+	  case WRITE_BUSY:
 	    LOG_DEBUG("socket busy");
 	    break;
-	  case ERROR:
+	  case WRITE_ERROR:
 	    LOG_ERROR("error writing output");
 	    close_request(event_loop, &events[i]);
 	    break;
-  	  case FINISH:
+	case WRITE_FINISH:
 	    LOG_INFO("successfully finished writing response");
 	    close_request(event_loop, &events[i]);
 	}
