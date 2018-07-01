@@ -1,7 +1,9 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <time.h>
 #include <unistd.h>
+
 #include "request_context.h"
 #include "logging.h"
 #include "http_request.h"
@@ -27,6 +29,8 @@ struct RequestContext {
   HttpRequest http_request;
 
   uint8_t flags;
+
+  struct timespec start_time;
 };
 
 /* returns 0 if flag is set, -1 otherwise */
@@ -42,7 +46,24 @@ void set_flag(RequestContext *context, enum Flags flag) {
   context->flags |= flag;
 }
 
-char* read_state_name(enum ReadState state) {
+inline static char* request_result_name(enum RequestResult result) {
+  switch (result) {
+  case REQUEST_SUCCESS:
+    return "SUCCESS";
+  case REQUEST_EPOLL_ERROR:
+    return "EPOLL_ERROR";
+  case REQUEST_READ_ERROR:
+    return "READ_ERROR";
+  case REQUEST_CLIENT_ERROR:
+    return "CLIENT_ERROR";
+  case REQUEST_WRITE_ERROR:
+    return "WRITE_ERROR";
+  default:
+    return "UNKNOWN";
+  }
+}
+
+inline static char* read_state_name(enum ReadState state) {
   switch (state) {
   case READ_FINISH:
     return "READ_FINISH";
@@ -65,6 +86,7 @@ RequestContext* init_request_context(int fd, char* host_name) {
   context->input_buffer = (char*) CHECK_MEM(calloc(BUF_SIZE, sizeof(char)));
   context->http_request.num_headers =
     sizeof(context->http_request.headers) / sizeof(context->http_request.headers[0]);
+  clock_gettime(CLOCK_MONOTONIC, &context->start_time);
   return context;
 }
 
@@ -74,6 +96,14 @@ int rc_get_fd(RequestContext *context) {
 
 char* rc_get_remote_host(RequestContext *context) {
   return context->remote_host;
+}
+
+size_t rc_get_bytes_read(RequestContext *context) {
+  return context->input_offset;
+}
+
+size_t rc_get_bytes_written(RequestContext *context) {
+  return context->output_offset;
 }
 
 HttpRequest* rc_get_http_request(RequestContext* context) {
@@ -101,7 +131,7 @@ enum ReadState rc_fill_input_buffer(RequestContext *context) {
       return CLIENT_DISCONNECT;
     } else {
       size_t prev_len = context->input_offset;
-      context->input_offset += (size_t) num_read;					   
+      context->input_offset += (size_t) num_read;				   
       enum ParseState p_state = http_parse(context->input_buffer,
 					   context->input_offset,
 					   prev_len,
@@ -153,7 +183,25 @@ void rc_set_output_buffer(RequestContext *context, char* output, size_t output_s
   set_flag(context, OUTPUT_BUFFER_SET);
 }
 
-void destroy_request_context(RequestContext *context) {
+void print_request_stats(RequestContext *context, enum RequestResult result) {
+  struct timespec end_time;
+  clock_gettime(CLOCK_MONOTONIC, &end_time);
+  struct timespec diff_time;
+  diff_time.tv_sec = end_time.tv_sec - context->start_time.tv_sec;
+  diff_time.tv_nsec = end_time.tv_nsec - context->start_time.tv_nsec;
+  time_t microseconds = 1000000 * diff_time.tv_sec + diff_time.tv_nsec / 1000;
+  
+  LOG_INFO("Request Stats");
+  LOG_INFO("\tresult=%s", request_result_name(result));
+  LOG_INFO("\tremote_host=%s", context->remote_host);
+  LOG_INFO("\tbytes_read=%zu", context->input_offset);
+  LOG_INFO("\tbytes_written=%zu", context->output_size);
+  LOG_INFO("\tmicroseconds=%ld", microseconds);
+
+}
+void rc_finish_destroy(RequestContext *context, enum RequestResult result) {
+  print_request_stats(context, result);
+  close(context->fd);
   free(context->remote_host);
   free(context->input_buffer);
   if (context->output_buffer != NULL) {

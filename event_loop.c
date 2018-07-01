@@ -19,9 +19,13 @@
 
 struct Stats {
   /* The number of currently open connections */
-  int active_connections;
+  size_t active_connections;
   /* The total number of requests that have been handled cumulatively */
-  int total_requests_processed;
+  size_t total_requests_processed;
+  /* The total number of bytes that have been read on the event loop */
+  size_t bytes_read;
+  /* The total number of byes that have been written out on the event loop */
+  size_t bytes_written;
 };
 
 struct EventLoop {
@@ -33,16 +37,19 @@ struct EventLoop {
 void print_stats(EventLoop *event_loop) {
   LOG_DEBUG("selector stats");
   LOG_DEBUG("\tfd=%d", event_loop->accept_fd);
-  LOG_DEBUG("\tactive_connections=%d", event_loop->stats.active_connections);
-  LOG_DEBUG("\ttotal_requests=%d", event_loop->stats.total_requests_processed);
+  LOG_DEBUG("\tactive_connections=%zu", event_loop->stats.active_connections);
+  LOG_DEBUG("\ttotal_requests=%zu", event_loop->stats.total_requests_processed);
+  LOG_DEBUG("\tbytes_read=%zu", event_loop->stats.bytes_read);
+  LOG_DEBUG("\tbytes_written=%zu", event_loop->stats.bytes_written);
 }
 
-void close_request(EventLoop *event_loop, struct epoll_event *event) {
+void close_request(EventLoop *event_loop,
+		   RequestContext *context,
+		   enum RequestResult result) {
   event_loop->stats.active_connections--;
-  RequestContext *context = (RequestContext*) event->data.ptr;
-  LOG_INFO("Closing request to %s", rc_get_remote_host(context));
-  close(rc_get_fd(context));
-  destroy_request_context(context);
+  event_loop->stats.bytes_read += rc_get_bytes_read(context);
+  event_loop->stats.bytes_written += rc_get_bytes_written(context);
+  rc_finish_destroy(context, result);
 }
 
 /**
@@ -50,13 +57,14 @@ void close_request(EventLoop *event_loop, struct epoll_event *event) {
  * Returns 0 for success, -1 in case of error.
  */
 int handle_poll_errors(EventLoop *event_loop, struct epoll_event *event) {
+  RequestContext *context = (RequestContext*) event->data.ptr;
   if (event->events & EPOLLERR) {
     LOG_ERROR("EPOLLERR from event");
-    close_request(event_loop, event);
+    close_request(event_loop, context, REQUEST_EPOLL_ERROR);
     return -1;
   } else if (event->events & EPOLLHUP) {
     LOG_ERROR("EPOLLHUP indicating peer closed the channel");
-    close_request(event_loop, event);
+    close_request(event_loop, context, REQUEST_EPOLL_ERROR);
     return -1;
   } else {
     return 0;
@@ -134,8 +142,6 @@ void event_loop(EventLoop *event_loop) {
       if (events[i].events & EPOLLIN) {
 	RequestContext *context = (RequestContext*) events[i].data.ptr;
 	enum ReadState state = rc_fill_input_buffer(context);
-	LOG_DEBUG("Read state for %s, %s", rc_get_remote_host(context),
-		  read_state_name(state));
 
 	switch (state) {
 	case READ_FINISH: {
@@ -155,8 +161,10 @@ void event_loop(EventLoop *event_loop) {
 	  break;
 	}
 	case READ_ERROR:
+	  close_request(event_loop, context, REQUEST_READ_ERROR);
+	  break;
 	case CLIENT_DISCONNECT:
-	  close_request(event_loop, &events[i]);
+	  close_request(event_loop, context, REQUEST_CLIENT_ERROR);
 	  break;
 	case READ_BUSY:
 	  break;
@@ -173,11 +181,11 @@ void event_loop(EventLoop *event_loop) {
 	    break;
 	  case WRITE_ERROR:
 	    LOG_ERROR("error writing output");
-	    close_request(event_loop, &events[i]);
+	    close_request(event_loop, context, REQUEST_WRITE_ERROR);
 	    break;
 	case WRITE_FINISH:
 	    LOG_INFO("successfully finished writing response");
-	    close_request(event_loop, &events[i]);
+	    close_request(event_loop, context, REQUEST_SUCCESS);
 	}
       }
     }

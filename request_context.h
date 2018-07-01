@@ -19,7 +19,13 @@ enum WriteState {
   WRITE_ERROR
 };
 
-char* read_state_name(enum ReadState);
+enum RequestResult {
+  REQUEST_SUCCESS,
+  REQUEST_EPOLL_ERROR,
+  REQUEST_READ_ERROR,
+  REQUEST_CLIENT_ERROR,
+  REQUEST_WRITE_ERROR,
+};
 
 RequestContext* init_request_context(int fd, char* host_name);
 
@@ -27,6 +33,15 @@ int rc_get_fd(RequestContext *context);
 
 char* rc_get_remote_host(RequestContext *context);
 
+size_t rc_get_bytes_read(RequestContext *context);
+
+size_t rc_get_bytes_written(RequestContext *context);
+
+/**
+ * Gets the underlying HTTP request that this context has read. This method
+ * cannot be called till the rc_fill_input_buffer has returned a ReadState
+ * indicating the request has be successfully read.
+ */
 HttpRequest* rc_get_http_request(RequestContext *context);
 
 /**
@@ -51,6 +66,11 @@ void rc_set_output_buffer(RequestContext *context, char* buffer, size_t output_s
  */
 enum WriteState rc_write_output(RequestContext *context);
 
-void destroy_request_context(RequestContext *context);
+/**
+ * Indicates that the request has is done and that all resources should be 
+ * clean up for it. The RequestResult is used to indicate the final result
+ * of the request.
+ */
+void rc_finish_destroy(RequestContext *context, enum RequestResult result);
 
 #endif
