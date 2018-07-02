@@ -31,6 +31,11 @@ struct Stats {
 struct EventLoop {
   /* The file descriptor to use to listen for new connections */
   int accept_fd;
+  /* the amount of actors in the system */
+  int actor_count;
+  /* the active socket to use to communicate to each actor */
+  int *actor_fds;
+  
   struct Stats stats;
 };
 
@@ -96,9 +101,11 @@ RequestContext* process_accept(EventLoop *event_loop) {
   return init_request_context(conn_sock, hbuf);
 }
 
-EventLoop* init_event_loop(int accept_fd) {
+EventLoop* init_event_loop(int accept_fd, int actor_count, int *actor_fds) {
   EventLoop *event = (EventLoop*) CHECK_MEM(calloc(1, sizeof(EventLoop)));
   event->accept_fd = accept_fd;
+  event->actor_count = actor_count;
+  event->actor_fds = actor_fds;
   return event;
 }
 

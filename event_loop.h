@@ -4,7 +4,7 @@
 struct EventLoop;
 typedef struct EventLoop EventLoop;
 
-EventLoop* init_event_loop(int accept_fd);
+EventLoop* init_event_loop(int accept_fd, int actor_count, int *actor_fds);
 
 void event_loop(EventLoop *eventLoop);
 
