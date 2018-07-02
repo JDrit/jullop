@@ -27,7 +27,7 @@ struct RequestContext {
   size_t output_size;
   size_t output_offset;
 
-  HttpRequest http_request;
+  HttpRequest *http_request;
 
   uint8_t flags;
 
@@ -85,8 +85,9 @@ RequestContext* init_request_context(int fd, char* host_name) {
   context->remote_host = host_name;
   context->fd = fd;
   context->input_buffer = (char*) CHECK_MEM(calloc(BUF_SIZE, sizeof(char)));
-  context->http_request.num_headers =
-    sizeof(context->http_request.headers) / sizeof(context->http_request.headers[0]);
+  context->http_request = (HttpRequest*) CHECK_MEM(calloc(1, sizeof(HttpRequest)));
+  context->http_request->num_headers =
+    sizeof(context->http_request->headers) / sizeof(context->http_request->headers[0]);
   clock_gettime(CLOCK_MONOTONIC, &context->start_time);
   return context;
 }
@@ -109,7 +110,7 @@ size_t rc_get_bytes_written(RequestContext *context) {
 
 HttpRequest* rc_get_http_request(RequestContext* context) {
   assert (!is_flag_set(context, HTTP_REQUEST_INITIALIZED));
-  return &context->http_request;
+  return context->http_request;
 }
 
 enum ReadState rc_fill_input_buffer(RequestContext *context) {
@@ -136,7 +137,7 @@ enum ReadState rc_fill_input_buffer(RequestContext *context) {
       enum ParseState p_state = http_parse(context->input_buffer,
 					   context->input_offset,
 					   prev_len,
-					   &context->http_request);
+					   context->http_request);
 
       switch (p_state) {
       case PARSE_FINISH:

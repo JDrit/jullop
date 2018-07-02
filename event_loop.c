@@ -17,27 +17,19 @@
 
 #define MAX_EVENTS 10
 
-struct Stats {
-  /* The number of currently open connections */
-  size_t active_connections;
-  /* The total number of requests that have been handled cumulatively */
-  size_t total_requests_processed;
-  /* The total number of bytes that have been read on the event loop */
-  size_t bytes_read;
-  /* The total number of byes that have been written out on the event loop */
-  size_t bytes_written;
+enum ContextType {
+  CLIENT,
+  ACTOR,
 };
 
-struct EventLoop {
-  /* The file descriptor to use to listen for new connections */
-  int accept_fd;
-  /* the amount of actors in the system */
-  int actor_count;
-  /* the active socket to use to communicate to each actor */
-  int *actor_fds;
+typedef struct ActorContext {
+  int id;
+} ActorContext;
+
+typedef struct LoopContext {
+  enum ContextType type;
   
-  struct Stats stats;
-};
+} LoopContext;
 
 void print_stats(EventLoop *event_loop) {
   LOG_DEBUG("selector stats");
@@ -101,34 +93,118 @@ RequestContext* process_accept(EventLoop *event_loop) {
   return init_request_context(conn_sock, hbuf);
 }
 
-EventLoop* init_event_loop(int accept_fd, int actor_count, int *actor_fds) {
+EventLoop* init_event_loop(int accept_fd) {
   EventLoop *event = (EventLoop*) CHECK_MEM(calloc(1, sizeof(EventLoop)));
   event->accept_fd = accept_fd;
-  event->actor_count = actor_count;
-  event->actor_fds = actor_fds;
   return event;
+}
+
+/**
+ * Takes a new a connection request, creates a request context for it, 
+ *  and adds it onto the event loop.
+ */
+void handle_new_connection(EventLoop *event_loop) {
+  RequestContext *context = process_accept(event_loop);
+  struct epoll_event event;
+  event.events = EPOLLIN;
+  event.data.ptr = context;
+  int conn_fd = rc_get_fd(context);
+  int r = epoll_ctl(event_loop->epoll_fd, EPOLL_CTL_ADD, conn_fd, &event);
+  CHECK(r == -1, "epoll add new conneciton");
+}
+
+/**
+ * Handles when the client socket is ready to be written to. Takes the output
+ * buffer associated with the response and tries to flush as much as possible
+ * to the socket. Cleans up the request once it has finished or an error has
+ * occured.
+ */
+void write_client_output(EventLoop *event_loop, RequestContext *context) {
+  enum WriteState state = rc_write_output(context);
+
+  switch (state) {
+  case WRITE_BUSY:
+    LOG_DEBUG("socket busy");
+    break;
+  case WRITE_ERROR:
+    LOG_ERROR("error writing output");
+    close_request(event_loop, context, REQUEST_WRITE_ERROR);
+    break;
+  case WRITE_FINISH:
+    LOG_INFO("successfully finished writing response");
+    close_request(event_loop, context, REQUEST_SUCCESS);
+  }
+}
+/**
+ * Handles when the client socket is ready to be read from. Reads as much as
+ * possible until a full HTTP request has been parsed.
+ */
+void read_client_input(EventLoop *event_loop, RequestContext *context) {
+  enum ReadState state = rc_fill_input_buffer(context);
+
+  switch (state) {
+  case READ_FINISH: {
+    // template output message
+    char *buf = (char*) CHECK_MEM(calloc(256, sizeof(char)));
+    sprintf(buf, "HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\nHello World", 11);
+    rc_set_output_buffer(context, buf, strlen(buf));
+    
+    HttpRequest *request = rc_get_http_request(context);
+    http_request_print(request);
+    
+    int fd = rc_get_fd(context);
+
+    // Override the events to only get output events for the given connection.
+    // A full HTTP request has been parsed so there is no need to read anything
+    // more.
+    struct epoll_event event;
+    event.data.ptr = context;
+    event.events = EPOLLOUT;
+    
+    int r = epoll_ctl(event_loop->epoll_fd, EPOLL_CTL_MOD, fd, &event);
+    CHECK(r == -1, "epoll control");
+    
+    //send(server->actors[0].selector_fd, buf, 256, 0);
+    
+    return;
+  }
+  case READ_ERROR:
+    close_request(event_loop, context, REQUEST_READ_ERROR);
+    return;
+  case CLIENT_DISCONNECT:
+    close_request(event_loop, context, REQUEST_CLIENT_ERROR);
+    return;
+  case READ_BUSY:
+    // there is still more to read off of the client request, for now go
+    // back onto the event loop
+    return;
+  }
 }
 
 /**
  * Runs the event loop and listens for connections on the given socket.
  */
-void event_loop(EventLoop *event_loop) {
-  int epoll_fd = epoll_create(1);
-  CHECK(epoll_fd == -1, "failed to create epoll loop");
+void event_loop(Server *server) {
+  EventLoop *event_loop = server->event_loop;
+  event_loop->epoll_fd = epoll_create(1);
+  CHECK(event_loop->epoll_fd == -1, "failed to create epoll loop");
 
   struct epoll_event event;
   event.data.ptr = event_loop;
   event.events = EPOLLIN;
 
-  CHECK(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, event_loop->accept_fd, &event),
-	"epoll control");
+  int r = epoll_ctl(event_loop->epoll_fd, EPOLL_CTL_ADD, event_loop->accept_fd, &event);
+  CHECK(r == -1, "epoll control when registering accept socket");
+
+  for (int i = 0 ; i < server->actor_count ; i++) {
+  }
   
   struct epoll_event events[MAX_EVENTS];
 
   while (1) {
-    print_stats(event_loop);
+    //print_stats(event_loop);
     
-    int ready_amount = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
+    int ready_amount = epoll_wait(event_loop->epoll_fd, events, MAX_EVENTS, -1);
     CHECK(ready_amount == -1, "failed waiting on epoll");
     
     for (int i = 0 ; i < ready_amount ; i++) {
@@ -136,64 +212,18 @@ void event_loop(EventLoop *event_loop) {
 	continue;
       }
       if (events[i].data.ptr == event_loop) {
-	RequestContext *context = process_accept(event_loop);
-	event.events = EPOLLIN;
-	event.data.ptr = context;
-
-	int conn_fd = rc_get_fd(context);
-	CHECK(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &event) == -1,
-	      "epoll control");
+	handle_new_connection(event_loop);
 	continue;
       }
 
       if (events[i].events & EPOLLIN) {
 	RequestContext *context = (RequestContext*) events[i].data.ptr;
-	enum ReadState state = rc_fill_input_buffer(context);
-
-	switch (state) {
-	case READ_FINISH: {
-	  // template output message
-	  char *buf = (char*) CHECK_MEM(calloc(256, sizeof(char)));
-	  sprintf(buf, "HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\nHello World", 11);
-	  rc_set_output_buffer(context, buf, strlen(buf));
-
-	  HttpRequest *request = rc_get_http_request(context);
-	  http_request_print(request);
-
-	  int fd = rc_get_fd(context);
-	  event.data.ptr = context;
-	  event.events = events[i].events | EPOLLOUT;
-	  CHECK(epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &event) == -1,
-		"epoll control");
-	  break;
-	}
-	case READ_ERROR:
-	  close_request(event_loop, context, REQUEST_READ_ERROR);
-	  break;
-	case CLIENT_DISCONNECT:
-	  close_request(event_loop, context, REQUEST_CLIENT_ERROR);
-	  break;
-	case READ_BUSY:
-	  break;
-	}
+	read_client_input(event_loop, context);
       }
 
       if (events[i].events & EPOLLOUT) {
 	RequestContext *context = (RequestContext*) events[i].data.ptr;
-	enum WriteState state = rc_write_output(context);
-
-	switch (state) {
-	  case WRITE_BUSY:
-	    LOG_DEBUG("socket busy");
-	    break;
-	  case WRITE_ERROR:
-	    LOG_ERROR("error writing output");
-	    close_request(event_loop, context, REQUEST_WRITE_ERROR);
-	    break;
-	case WRITE_FINISH:
-	    LOG_INFO("successfully finished writing response");
-	    close_request(event_loop, context, REQUEST_SUCCESS);
-	}
+	write_client_output(event_loop, context);
       }
     }
   }  

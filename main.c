@@ -18,15 +18,11 @@
 #include "logging.h"
 #include "request_context.h"
 #include "event_loop.h"
+#include "server.h"
 
 #define PORT 8080
 #define QUEUE_LENGTH 10
 
-struct Server {
-  int actor_count;
-  pthread_t *actor_pthreads;
-  EventLoop *event_loop;
-};
 
 int create_socket() {
   int opt = 1;
@@ -54,27 +50,29 @@ int create_socket() {
   return sock;
 }
 
-/**
- * Creates an actor thread and assigns it the given id. A socket pair is
- * created and one is given to the actor and the other is returned.
- */
-int create_actor(struct Server *server, int id) {
+void create_actor(Server *server, int id, ActorInfo *actor) {
   int fds[2];
-  int r = socketpair(AF_LOCAL, SOCK_STREAM | SOCK_NONBLOCK, 0, fds);
+  int r = socketpair(AF_LOCAL, SOCK_STREAM, 0, fds);
   CHECK(r != 0, "Failed to create actor socket pair");
-    
+
+  // sets the selector-side socket to be non-blocking but leaves the actor-side
+  // as blocking.
+  r = fcntl(fds[1], F_SETFL, O_NONBLOCK);
+  CHECK(r != 0, "Failed to set non-blocking");
+  
   ActorArgs *args = init_actor_args(id, fds[0]);
-  r = pthread_create(&server->actor_pthreads[id], NULL, run_actor, args);
+  r = pthread_create(&actor->pthread_fd, NULL, run_actor, args);
   CHECK(r != 0, "Failed to create pthread %d", id);
 
   cpu_set_t cpu_set;
   CPU_ZERO(&cpu_set);
   CPU_SET(id, &cpu_set);
-  r = pthread_setaffinity_np(server->actor_pthreads[id], sizeof(cpu_set_t),
-			     &cpu_set);
+  r = pthread_setaffinity_np(actor->pthread_fd, sizeof(cpu_set_t), &cpu_set);
   CHECK(r != 0, "Failed to set cpu infinity to %d", id);
-  
-  return fds[1];
+
+  actor->id = id;
+  actor->selector_fd = fds[1];
+  actor->actor_fd = fds[0];
 }
 
 int main(int argc, char* argv[]) {
@@ -84,14 +82,11 @@ int main(int argc, char* argv[]) {
 
   struct Server server;
   server.actor_count = cores;
-  server.actor_pthreads = (pthread_t*) CHECK_MEM(calloc((size_t) cores, sizeof(pthread_t)));
-
-  int *actor_input_fds = (int*) CHECK_MEM(calloc((size_t) cores, sizeof(int)));
+  server.actors = (ActorInfo*) CHECK_MEM(calloc((size_t) cores, sizeof(ActorInfo)));
   for (int i = 0 ; i < cores ; i++) {
-    actor_input_fds[i] = create_actor(&server, i);
+    create_actor(&server, i, &server.actors[i]);
   }
-  server.event_loop = init_event_loop(sock_fd, cores, actor_input_fds);
-
+  server.event_loop = init_event_loop(sock_fd);
 				     
-  event_loop(server.event_loop);
+  event_loop(&server);
 }

@@ -1,11 +1,10 @@
 #ifndef __db_event_loop__
 #define __db_event_loop__
 
-struct EventLoop;
-typedef struct EventLoop EventLoop;
+#include "server.h"
 
-EventLoop* init_event_loop(int accept_fd, int actor_count, int *actor_fds);
+EventLoop* init_event_loop(int accept_fd);
 
-void event_loop(EventLoop *eventLoop);
+void event_loop(Server *server);
 
 #endif
