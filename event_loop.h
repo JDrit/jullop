@@ -3,8 +3,6 @@
 
 #include "server.h"
 
-EventLoop* init_event_loop(int accept_fd);
-
-void event_loop(Server *server);
+void event_loop(Server *server, int sock_fd);
 
 #endif

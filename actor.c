@@ -20,6 +20,7 @@ ActorArgs *init_actor_args(int id, int fd) {
 }
 
 void *run_actor(void *pthread_input) {
+    
   ActorArgs *args = (ActorArgs*) pthread_input;
   LOG_INFO("Starting actor #%d on fd %d", args->id, args->fd);
   void *buf[ACTOR_BUF_SIZE];

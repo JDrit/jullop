@@ -21,8 +21,7 @@
 #include "server.h"
 
 #define PORT 8080
-#define QUEUE_LENGTH 10
-
+#define QUEUE_LENGTH 100
 
 int create_socket() {
   int opt = 1;
@@ -64,6 +63,9 @@ void create_actor(Server *server, int id, ActorInfo *actor) {
   r = pthread_create(&actor->pthread_fd, NULL, run_actor, args);
   CHECK(r != 0, "Failed to create pthread %d", id);
 
+  r = pthread_detach(actor->pthread_fd);
+  CHECK(r != 0, "failed to detach pthread");
+
   cpu_set_t cpu_set;
   CPU_ZERO(&cpu_set);
   CPU_SET(id, &cpu_set);
@@ -86,7 +88,5 @@ int main(int argc, char* argv[]) {
   for (int i = 0 ; i < cores ; i++) {
     create_actor(&server, i, &server.actors[i]);
   }
-  server.event_loop = init_event_loop(sock_fd);
-				     
-  event_loop(&server);
+  event_loop(&server, sock_fd);
 }

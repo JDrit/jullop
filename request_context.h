@@ -2,6 +2,7 @@
 #define __request_context_h__
 
 #include "http_request.h"
+#include "server.h"
 
 struct RequestContext;
 typedef struct RequestContext RequestContext;
@@ -27,6 +28,15 @@ enum RequestResult {
   REQUEST_WRITE_ERROR,
 };
 
+enum RequestState {
+  INIT,
+  CLIENT_READ,
+  CLIENT_WRITE,
+  ACTOR_READ,
+  ACTOR_WRITE,
+  FINISH
+};
+
 RequestContext* init_request_context(int fd, char* host_name);
 
 int rc_get_fd(RequestContext *context);
@@ -36,6 +46,20 @@ char* rc_get_remote_host(RequestContext *context);
 size_t rc_get_bytes_read(RequestContext *context);
 
 size_t rc_get_bytes_written(RequestContext *context);
+
+enum RequestState rc_get_state(RequestContext *context);
+
+/**
+ * Updates the state model for the given reuqest.
+ */
+void rc_set_state(RequestContext *context, enum RequestState state);
+
+/**
+ * Specifies the actor that this request will be sent to.
+ */
+void rc_set_actor(RequestContext *context, ActorInfo *actor);
+
+enum WriteState rc_send_to_actor(RequestContext *context);
 
 /**
  * Gets the underlying HTTP request that this context has read. This method

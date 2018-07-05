@@ -5,37 +5,53 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "request_context.h"
-#include "logging.h"
 #include "http_request.h"
+#include "logging.h"
+#include "request_context.h"
+#include "server.h"
 
 #define BUF_SIZE 2048
 
 enum Flags {
   HTTP_REQUEST_INITIALIZED = 1 << 0,
   OUTPUT_BUFFER_SET = 1 << 1,
+  ACTOR_SET = 1 << 2,
 };
 
 struct RequestContext {
+  /* the address of the client */
   char *remote_host;
+  /* the file descriptor to communicate to the client with */
   int fd;
-  
+
+  /* input buffer from the client */
   char *input_buffer;
+  /* how much has been read from the client so far */
   size_t input_offset;
 
+  /* output buffer to the client */
   char *output_buffer;
+  /* the total size of the output buffer */
   size_t output_size;
+  /* amount that has been written to the client so far */
   size_t output_offset;
 
+  /* the parsed HTTP request for this request */
   HttpRequest *http_request;
+  /* used to track the amount of bytes sent to the actor for this request */
+  size_t actor_input;
 
   uint8_t flags;
 
   struct timespec start_time;
+
+  enum RequestState request_state;
+
+  ActorInfo *actor_info;
 };
 
 /* returns 0 if flag is set, -1 otherwise */
-int is_flag_set(RequestContext *context, enum Flags flag) {
+static int is_flag_set(RequestContext *context, enum Flags flag) {
   if ((context->flags & flag) == 0) {
     return -1;
   } else {
@@ -43,7 +59,7 @@ int is_flag_set(RequestContext *context, enum Flags flag) {
   }
 }
 
-void set_flag(RequestContext *context, enum Flags flag) {
+static void set_flag(RequestContext *context, enum Flags flag) {
   context->flags |= flag;
 }
 
@@ -89,6 +105,7 @@ RequestContext* init_request_context(int fd, char* host_name) {
   context->http_request->num_headers =
     sizeof(context->http_request->headers) / sizeof(context->http_request->headers[0]);
   clock_gettime(CLOCK_MONOTONIC, &context->start_time);
+  context->request_state = CLIENT_READ;
   return context;
 }
 
@@ -106,6 +123,18 @@ size_t rc_get_bytes_read(RequestContext *context) {
 
 size_t rc_get_bytes_written(RequestContext *context) {
   return context->output_offset;
+}
+
+enum RequestState rc_get_state(RequestContext *context) {
+  return context->request_state;
+}
+void rc_set_state(RequestContext *context, enum RequestState state) {
+  context->request_state = state;
+}
+
+void rc_set_actor(RequestContext *context, ActorInfo *actor) {
+  context->actor_info = actor;
+  set_flag(context, ACTOR_SET);
 }
 
 HttpRequest* rc_get_http_request(RequestContext* context) {
@@ -138,7 +167,6 @@ enum ReadState rc_fill_input_buffer(RequestContext *context) {
 					   context->input_offset,
 					   prev_len,
 					   context->http_request);
-
       switch (p_state) {
       case PARSE_FINISH:
 	set_flag(context, HTTP_REQUEST_INITIALIZED);
@@ -149,6 +177,33 @@ enum ReadState rc_fill_input_buffer(RequestContext *context) {
 	return READ_BUSY;
       }
 
+    }
+  }
+}
+
+enum WriteState rc_send_to_actor(RequestContext *context) {
+  assert(!is_flag_set(context, ACTOR_SET));
+
+  while (1) {
+    void* start_addr = context->http_request + context->actor_input;
+    size_t num_to_write = sizeof(size_t) - context->actor_input;
+    ssize_t num_written = write(context->actor_info->selector_fd,
+				start_addr,
+				num_to_write);
+
+    if (num_written <= 0) {
+      if (errno == EAGAIN) {
+	// resets the error condition since it is being handled
+	errno = 0;
+	return WRITE_BUSY;
+      } else {
+	return WRITE_ERROR;
+      }
+    } else {
+      context->actor_input += (size_t) num_written;
+      if (context->actor_input == sizeof(size_t)) {
+	return WRITE_FINISH;
+      }
     }
   }
 }
@@ -206,6 +261,7 @@ void rc_finish_destroy(RequestContext *context, enum RequestResult result) {
   close(context->fd);
   free(context->remote_host);
   free(context->input_buffer);
+  free(context->http_request);
   if (context->output_buffer != NULL) {
     free(context->output_buffer);
   }
