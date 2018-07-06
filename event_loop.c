@@ -26,6 +26,7 @@ void close_client_request(EpollInfo *epoll_info,
   epoll_info->stats.active_connections--;
   epoll_info->stats.bytes_read += rc_get_bytes_read(request_context);
   epoll_info->stats.bytes_written += rc_get_bytes_written(request_context);
+  delete_epoll_event(epoll_info, rc_get_fd(request_context));
   rc_finish_destroy(request_context, result);
 }
 
@@ -35,6 +36,7 @@ void close_client_request(EpollInfo *epoll_info,
  */
 int handle_poll_errors(EpollInfo *epoll_info, struct epoll_event *event) {
   RequestContext *request_context = (RequestContext*) event->data.ptr;
+
   if (event->events & EPOLLERR || event->events & EPOLLHUP) {
     enum RequestState state = rc_get_state(request_context);
 
@@ -100,11 +102,34 @@ void write_client_output(EpollInfo *epoll_info,
   }
 }
 
+void write_actor_output(EpollInfo *epoll_info,
+			RequestContext *request_context) {
+  enum WriteState state = rc_send_to_actor(request_context);
+
+  switch (state) {
+  case WRITE_BUSY:
+    LOG_DEBUG("actor socket busy");
+    break;
+  case WRITE_ERROR:
+    LOG_ERROR("error writing to the actor socket");
+    break;
+  case WRITE_FINISH:
+    LOG_INFO("successfully finished writing to actor");
+
+    // wait for the actor to respond.
+    rc_set_state(request_context, ACTOR_READ);
+    int actor_fd = rc_get_actor(request_context)->selector_fd;
+    add_input_epoll_event(epoll_info, actor_fd, request_context);
+    break;
+  }
+}
+
 /**
  * Handles when the client socket is ready to be read from. Reads as much as
  * possible until a full HTTP request has been parsed.
  */
 void read_client_input(EpollInfo *epoll_info,
+		       Server *server,
 		       RequestContext *request_context) {
   
   enum ReadState state = rc_fill_input_buffer(request_context);
@@ -119,8 +144,15 @@ void read_client_input(EpollInfo *epoll_info,
     HttpRequest *request = rc_get_http_request(request_context);
     http_request_print(request);
 
-    rc_set_state(request_context, CLIENT_WRITE);
-    output_epoll_event(epoll_info, request_context);
+    ActorInfo actor_info = server->actors[0];
+    int actor_fd = actor_info.selector_fd;
+    rc_set_state(request_context, ACTOR_WRITE);
+    rc_set_actor(request_context, &actor_info);
+
+    // registers the communication layer to the actor
+    output_epoll_event(epoll_info, actor_fd, request_context);
+    
+    //output_epoll_event(epoll_info, request_context);
     
     return;
   }
@@ -149,28 +181,33 @@ void event_loop(Server *server, int sock_fd) {
     struct epoll_event events[MAX_EVENTS];    
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
     CHECK(ready_amount == -1, "failed waiting on epoll");
+    LOG_DEBUG("Epoll Events: %d", ready_amount);
 
-    LOG_INFO("EPOLL WAIT events=%d", ready_amount);
-    
     for (int i = 0 ; i < ready_amount ; i++) {
       if (handle_poll_errors(epoll_info, &events[i]) != 0) {
 	continue;
       }
       if (events[i].data.ptr == epoll_info) {
 	RequestContext *request_context = process_accept(epoll_info);
-	input_epoll_event(epoll_info, request_context);
+	int fd = rc_get_fd(request_context);
+	input_epoll_event(epoll_info, fd, request_context);
 	continue;
       }
       RequestContext *request_context = (RequestContext*) events[i].data.ptr;
       
       if (events[i].events & EPOLLIN
 	  && rc_get_state(request_context) == CLIENT_READ) {
-	read_client_input(epoll_info, request_context);
+	read_client_input(epoll_info, server, request_context);
       }
 
       if (events[i].events & EPOLLOUT
 	  && rc_get_state(request_context) == CLIENT_WRITE) {
 	write_client_output(epoll_info, request_context);
+      }
+
+      if (events[i].events & EPOLLOUT
+	  && rc_get_state(request_context) == ACTOR_WRITE) {
+	write_actor_output(epoll_info, request_context);
       }
     }
   }  

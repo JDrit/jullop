@@ -4,7 +4,6 @@
 
 #include "epoll_info.h"
 #include "logging.h"
-#include "request_context.h"
 
 EpollInfo *init_epoll_info(int accept_fd) {
   EpollInfo *epoll_info = (EpollInfo*) CHECK_MEM(calloc(1, sizeof(EpollInfo)));
@@ -25,32 +24,50 @@ void set_accept_epoll_event(EpollInfo *epoll) {
   CHECK(r == -1, "failed to register accept file descriptor");  
 }
 
-void input_epoll_event(EpollInfo *epoll, RequestContext *request_context) {
+void input_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   struct epoll_event event;
   memset(&event, 0, sizeof(event));
   event.events = EPOLLIN | EPOLLET;
-  event.data.ptr = request_context;
-  int client_fd = rc_get_fd(request_context);
+  event.data.ptr = ptr;
   
-  int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_ADD, client_fd, &event);
-  CHECK(r == -1, "failed to add epoll event");
+  int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_ADD, fd, &event);
+  CHECK(r == -1, "failed to add input epoll event");
 }
 
-void output_epoll_event(EpollInfo *epoll, RequestContext *request_context) {
+void output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   struct epoll_event event;
   memset(&event, 0, sizeof(event));
   event.events = EPOLLOUT | EPOLLET;
-  event.data.ptr = request_context;
-  int client_fd = rc_get_fd(request_context);
-
-  int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_MOD, client_fd, &event);
-  CHECK(r == -1, "failed to modify epoll event");
+  event.data.ptr = ptr;
+  
+  int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_ADD, fd, &event);
+  CHECK(r == -1, "failed to add output epoll event");
 }
 
-void delete_epoll_event(EpollInfo *epoll, RequestContext *request_context) {
+void add_input_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   struct epoll_event event;
-  int client_fd = rc_get_fd(request_context);
-  int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_DEL, client_fd, &event);
+  memset(&event, 0, sizeof(event));
+  event.events = EPOLLIN | EPOLLET;
+  event.data.ptr = ptr;
+
+  int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_MOD, fd, &event);
+  CHECK(r == -1, "failed to modify input epoll event");
+}
+
+void add_output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
+  struct epoll_event event;
+  memset(&event, 0, sizeof(event));
+  event.events = EPOLLOUT | EPOLLET;
+  event.data.ptr = ptr;
+
+  int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_MOD, fd, &event);
+  CHECK(r == -1, "failed to modify output epoll event");
+}
+
+void delete_epoll_event(EpollInfo *epoll, int fd) {
+  struct epoll_event event;
+
+  int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_DEL, fd, &event);
   CHECK(r == -1, "failed to delete epoll event");
 }
 

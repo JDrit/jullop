@@ -3,6 +3,8 @@
 
 #include "picohttpparser.h"
 
+#define NUM_HEADERS 100
+
 typedef struct HttpRequest {
   const char *method;
   size_t method_len;
@@ -12,7 +14,7 @@ typedef struct HttpRequest {
 
   int minor_version;
 
-  struct phr_header headers[100];
+  struct phr_header headers[NUM_HEADERS];
   size_t num_headers;
   
 } HttpRequest;

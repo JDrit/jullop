@@ -1,11 +1,10 @@
 #ifndef __request_context_h__
 #define __request_context_h__
 
+#include <stdint.h>
+
 #include "http_request.h"
 #include "server.h"
-
-struct RequestContext;
-typedef struct RequestContext RequestContext;
 
 enum ReadState {
   READ_FINISH,
@@ -37,6 +36,9 @@ enum RequestState {
   FINISH
 };
 
+struct RequestContext;
+typedef struct RequestContext RequestContext;
+
 RequestContext* init_request_context(int fd, char* host_name);
 
 int rc_get_fd(RequestContext *context);
@@ -58,6 +60,11 @@ void rc_set_state(RequestContext *context, enum RequestState state);
  * Specifies the actor that this request will be sent to.
  */
 void rc_set_actor(RequestContext *context, ActorInfo *actor);
+
+/**
+ * Gets the actor that has been assigned to the given request.
+ */
+ActorInfo *rc_get_actor(RequestContext *actor);
 
 enum WriteState rc_send_to_actor(RequestContext *context);
 

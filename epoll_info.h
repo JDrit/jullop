@@ -1,8 +1,6 @@
 #ifndef __epoll_info_h__
 #define __epoll_info_h__
 
-#include "request_context.h"
-
 struct Stats {
   /* The number of currently open connections */
   size_t active_connections;
@@ -35,19 +33,32 @@ EpollInfo *init_epoll_info(int accept_fd);
 void set_accept_epoll_event(EpollInfo *epoll);
 
 /**
- * Set the request context to start listening for input requests.
+ * Registers the given file descriptor to start accepting input. Adds the 
+ * given pointer to the event.
  */ 
-void input_epoll_event(EpollInfo *epoll, RequestContext *request_context);
+void input_epoll_event(EpollInfo *epoll, int fd, void *ptr);
 
 /**
- * Sets the request context to change from listining to input requests
- * to start responding to output requests.
+ * Registers the given file descriptor to start accepting write requests. 
+ * Adds the given pointer to the event.
  */
-void output_epoll_event(EpollInfo *epoll, RequestContext *request_context);
+void output_epoll_event(EpollInfo *epoll, int fd, void *ptr);
 
 /**
- * Removes the request context from the epoll event loop.
+ * Changes the given file descriptor to start accepting read requests.
+ * Adds the given pointer to the event context.
  */
-void delete_epoll_event(EpollInfo *epoll, RequestContext *request_context);
+void add_input_epoll_event(EpollInfo *epoll, int fd, void *ptr);
+
+/**
+ * Changes the given file descriptor to start accepting write requests.
+ * Adds the given pointer to the event context.
+ */
+void add_output_epoll_event(EpollInfo *epoll, int fd, void *ptr);
+
+/**
+ * Removes the file descriptor from the epoll event loop.
+ */
+void delete_epoll_event(EpollInfo *epoll, int fd);
 
 #endif

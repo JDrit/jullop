@@ -137,6 +137,11 @@ void rc_set_actor(RequestContext *context, ActorInfo *actor) {
   set_flag(context, ACTOR_SET);
 }
 
+ActorInfo *rc_get_actor(RequestContext *context) {
+  assert(!is_flag_set(context, ACTOR_SET));
+  return context->actor_info;
+}
+
 HttpRequest* rc_get_http_request(RequestContext* context) {
   assert (!is_flag_set(context, HTTP_REQUEST_INITIALIZED));
   return context->http_request;
@@ -188,7 +193,7 @@ enum WriteState rc_send_to_actor(RequestContext *context) {
     void* start_addr = context->http_request + context->actor_input;
     size_t num_to_write = sizeof(size_t) - context->actor_input;
     ssize_t num_written = write(context->actor_info->selector_fd,
-				start_addr,
+				&start_addr,
 				num_to_write);
 
     if (num_written <= 0) {
