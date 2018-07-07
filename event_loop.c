@@ -8,12 +8,14 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/epoll.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "epoll_info.h"
 #include "event_loop.h"
 #include "logging.h"
 #include "request_context.h"
+#include "time_stats.h"
 
 #define MAX_EVENTS 10
 
@@ -27,6 +29,7 @@ void close_client_request(EpollInfo *epoll_info,
   epoll_info->stats.bytes_read += context_bytes_read(request_context);
   epoll_info->stats.bytes_written += context_bytes_written(request_context);
   delete_epoll_event(epoll_info, request_context->fd);
+  set_request_end_time(&request_context->time_stats);
   request_finish_destroy(request_context, result);
 }
 
@@ -85,7 +88,10 @@ RequestContext* process_accept(EpollInfo *epoll_info) {
  */
 void write_client_response(EpollInfo *epoll_info,
 			   RequestContext *request_context) {
+
+  set_client_write_start_time(&request_context->time_stats);
   enum WriteState state = context_write_client_response(request_context);
+  set_client_write_end_time(&request_context->time_stats);
 
   switch (state) {
   case WRITE_BUSY:
@@ -97,7 +103,6 @@ void write_client_response(EpollInfo *epoll_info,
     close_client_request(epoll_info, request_context, REQUEST_WRITE_ERROR);
     break;
   case WRITE_FINISH:
-    LOG_INFO("successfully finished writing response");
     request_context->state = FINISH;
     close_client_request(epoll_info, request_context, REQUEST_SUCCESS);
     break;
@@ -105,6 +110,8 @@ void write_client_response(EpollInfo *epoll_info,
 }
 
 void write_actor_request(EpollInfo *epoll_info, RequestContext *request_context) {
+
+  set_actor_start_time(&request_context->time_stats);
   enum WriteState state = context_write_actor_request(request_context);
 
   switch (state) {
@@ -125,7 +132,7 @@ void write_actor_request(EpollInfo *epoll_info, RequestContext *request_context)
 
 void read_actor_response(EpollInfo *epoll_info, RequestContext *request_context) {
   enum ReadState state = context_read_actor_response(request_context);
-
+  
   switch (state) {
   case READ_BUSY:
     LOG_DEBUG("actor socket busy");
@@ -138,6 +145,7 @@ void read_actor_response(EpollInfo *epoll_info, RequestContext *request_context)
     break;
   case READ_FINISH:
     request_context->state = CLIENT_WRITE;
+    set_actor_end_time(&request_context->time_stats);
     add_output_epoll_event(epoll_info, request_context->fd, request_context);
   }
 }
@@ -148,8 +156,10 @@ void read_actor_response(EpollInfo *epoll_info, RequestContext *request_context)
  */
 void read_client_request(EpollInfo *epoll_info, Server *server,
 			 RequestContext *request_context) {
-  
+
+  set_client_read_start_time(&request_context->time_stats);
   enum ReadState state = context_read_client_request(request_context);
+  set_client_read_end_time(&request_context->time_stats);
 
   switch (state) {
   case READ_FINISH: {
@@ -202,6 +212,7 @@ void event_loop(Server *server, int sock_fd) {
       }
       if (events[i].data.ptr == epoll_info) {
 	RequestContext *request_context = process_accept(epoll_info);
+	set_request_start_time(&request_context->time_stats);
 	int fd = request_context->fd;
 	input_epoll_event(epoll_info, fd, request_context);
 	continue;

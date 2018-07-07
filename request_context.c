@@ -185,6 +185,7 @@ enum ReadState context_read_client_request(RequestContext *context) {
   assert (context->state == CLIENT_READ);
 
   while (1) {
+    
     void* start_addr = context->input_buffer + context->input_offset;
     size_t max_to_read = BUF_SIZE - context->input_offset;
     ssize_t num_read = read(context->fd, start_addr, max_to_read);
@@ -224,19 +225,21 @@ enum ReadState context_read_client_request(RequestContext *context) {
 }
 
 static void print_request_stats(RequestContext *context, enum RequestResult result) {
-  struct timespec end_time;
-  clock_gettime(CLOCK_MONOTONIC, &end_time);
-  struct timespec diff_time;
-  diff_time.tv_sec = end_time.tv_sec - context->start_time.tv_sec;
-  diff_time.tv_nsec = end_time.tv_nsec - context->start_time.tv_nsec;
-  time_t microseconds = 1000000 * diff_time.tv_sec + diff_time.tv_nsec / 1000;
+  time_t total_request = get_total_request_time(&context->time_stats);
+  time_t client_read = get_client_read_time(&context->time_stats);
+  time_t client_write = get_client_write_time(&context->time_stats);
+  time_t actor_time = get_actor_time(&context->time_stats);
   
-  LOG_INFO("Request Stats");
-  LOG_INFO("\tresult=%s", request_result_name(result));
-  LOG_INFO("\tremote_host=%s", context->remote_host);
-  LOG_INFO("\tbytes_read=%zu", context->input_offset);
-  LOG_INFO("\tbytes_written=%zu", context->output_offset);
-  LOG_INFO("\tmicroseconds=%ld", microseconds);
+  LOG_INFO("Request Stats:");
+  LOG_INFO("  result=%s", request_result_name(result));
+  LOG_INFO("  remote_host=%s", context->remote_host);
+  LOG_INFO("  bytes_read=%zu", context->input_offset);
+  LOG_INFO("  bytes_written=%zu", context->output_offset);
+  LOG_INFO("Time Stats:");
+  LOG_INFO("  total_micros=%ld", total_request);
+  LOG_INFO("  client_read_micros=%ld", client_read);
+  LOG_INFO("  actor_micros=%ld", actor_time);
+  LOG_INFO("  client_write_micros=%ld", client_write);
 }
 
 void request_finish_destroy(RequestContext *context, enum RequestResult result) {

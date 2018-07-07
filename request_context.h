@@ -7,6 +7,7 @@
 #include "actor_response.h"
 #include "http_request.h"
 #include "server.h"
+#include "time_stats.h"
 
 enum ReadState {
   READ_FINISH,
@@ -72,6 +73,9 @@ typedef struct RequestContext {
   enum RequestState state;
 
   ActorInfo *actor_info;
+
+  /* used to store the time spent on the request */
+  TimeStats time_stats;
 } RequestContext;
 
 /**
