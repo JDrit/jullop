@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include "actor_request.h"
+#include "actor_response.h"
 #include "http_request.h"
 #include "server.h"
 
@@ -36,72 +38,88 @@ enum RequestState {
   FINISH
 };
 
-struct RequestContext;
-typedef struct RequestContext RequestContext;
+typedef struct RequestContext {
 
-RequestContext* init_request_context(int fd, char* host_name);
+  /* the address of the client */
+  char *remote_host;
+  /* the file descriptor to communicate to the client with */
+  int fd;
 
-int rc_get_fd(RequestContext *context);
+  /* input buffer from the client */
+  char *input_buffer;
+  /* how much has been read from the client so far */
+  size_t input_offset;
 
-char* rc_get_remote_host(RequestContext *context);
+  /* the parsed HTTP request for this request */
+  HttpRequest http_request;
 
-size_t rc_get_bytes_read(RequestContext *context);
+  ActorRequest actor_request;
+  /* used to track the amount of bytes sent to the actor for this request */
+  size_t actor_input_offset;
 
-size_t rc_get_bytes_written(RequestContext *context);
+  ActorResponse *actor_response;
+  size_t output_offset;
 
-enum RequestState rc_get_state(RequestContext *context);
+  /* the buffer to write the actor's response payload into */
+  char actor_response_buffer[sizeof(size_t)];
+  /* used to track the amount of bytes read back from the actor */
+  size_t actor_output_offset;
+
+  uint8_t flags;
+
+  struct timespec start_time;
+
+  enum RequestState state;
+
+  ActorInfo *actor_info;
+} RequestContext;
 
 /**
- * Updates the state model for the given reuqest.
+ * Constructs a RequestContext to listen handle a client's request on
+ * given file descriptor. The host_name is the name of the remote host
+ * for the given client.
  */
-void rc_set_state(RequestContext *context, enum RequestState state);
+RequestContext *init_request_context(int fd, char* host_name);
+
+/**
+ * The number of bytes read as input from the client.
+ */
+size_t context_bytes_read(RequestContext *context);
+
+/**
+ * The number of bytes written back to the client.
+ */
+size_t context_bytes_written(RequestContext *contex);
 
 /**
  * Specifies the actor that this request will be sent to.
  */
-void rc_set_actor(RequestContext *context, ActorInfo *actor);
+void context_set_actor(RequestContext *context, ActorInfo *actor);
 
 /**
  * Gets the actor that has been assigned to the given request.
  */
-ActorInfo *rc_get_actor(RequestContext *actor);
-
-enum WriteState rc_send_to_actor(RequestContext *context);
+ActorInfo *context_get_actor(RequestContext *actor);
 
 /**
- * Gets the underlying HTTP request that this context has read. This method
- * cannot be called till the rc_fill_input_buffer has returned a ReadState
- * indicating the request has be successfully read.
+ * Sends the request to the target actor
  */
-HttpRequest* rc_get_http_request(RequestContext *context);
+enum WriteState context_write_actor_request(RequestContext *context);
 
 /**
- * Reads the file descriptor associated with the given context
- * and tries to read as much of the data into the buffer.
- *
- * Returns an enum to indicate the outcome of the read operations.
+ * Reads the response from the actor.
  */
-enum ReadState rc_fill_input_buffer(RequestContext *context);
+enum ReadState context_read_actor_response(RequestContext *context);
 
-/**
- * Sets the buffer that will be sent to the client.
- */
-void rc_set_output_buffer(RequestContext *context, char* buffer, size_t output_size);
+enum WriteState context_write_client_response(RequestContext *context);
 
-/**
- * Attempts to write out as much as possible to the underlying
- * socket. Returns an enum to indicate the output of the write.
- * 
- * There is undefinied behavior when an output buffer has not been set before
- * this has been called.
- */
-enum WriteState rc_write_output(RequestContext *context);
+enum ReadState context_read_client_request(RequestContext *context);
 
 /**
  * Indicates that the request has is done and that all resources should be 
  * clean up for it. The RequestResult is used to indicate the final result
  * of the request.
  */
-void rc_finish_destroy(RequestContext *context, enum RequestResult result);
+void request_finish_destroy(RequestContext *context, enum RequestResult result);
 
 #endif

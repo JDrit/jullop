@@ -29,7 +29,8 @@ void input_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   memset(&event, 0, sizeof(event));
   event.events = EPOLLIN | EPOLLET;
   event.data.ptr = ptr;
-  
+
+  LOG_DEBUG("add fd=%d to accept reads %p", fd, ptr);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_ADD, fd, &event);
   CHECK(r == -1, "failed to add input epoll event");
 }
@@ -39,7 +40,8 @@ void output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   memset(&event, 0, sizeof(event));
   event.events = EPOLLOUT | EPOLLET;
   event.data.ptr = ptr;
-  
+
+  LOG_DEBUG("add fd=%d to accept writes %p", fd, ptr);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_ADD, fd, &event);
   CHECK(r == -1, "failed to add output epoll event");
 }
@@ -50,6 +52,7 @@ void add_input_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   event.events = EPOLLIN | EPOLLET;
   event.data.ptr = ptr;
 
+  LOG_DEBUG("modify fd=%d to accept reads %p", fd, ptr);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_MOD, fd, &event);
   CHECK(r == -1, "failed to modify input epoll event");
 }
@@ -60,6 +63,7 @@ void add_output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   event.events = EPOLLOUT | EPOLLET;
   event.data.ptr = ptr;
 
+  LOG_DEBUG("modify fd=%d to accept write %p", fd, ptr);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_MOD, fd, &event);
   CHECK(r == -1, "failed to modify output epoll event");
 }
@@ -67,6 +71,7 @@ void add_output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
 void delete_epoll_event(EpollInfo *epoll, int fd) {
   struct epoll_event event;
 
+  LOG_DEBUG("delete fd=%d to accept all operations", fd);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_DEL, fd, &event);
   CHECK(r == -1, "failed to delete epoll event");
 }
