@@ -75,6 +75,10 @@ void *run_actor(void *pthread_input) {
   while (1) {
     ActorRequest *request = read_http_request(args->fd);
     HttpRequest *http_request = request->http_request;
+    LOG_INFO("actor %d received request: %.*s %.*s",
+	     args->id,
+	     (int) http_request->method_len, http_request->method,
+	     (int) http_request->path_len, http_request->path);
 
     size_t size = 256;
     char *buf = (char*) CHECK_MEM(calloc(size, sizeof(char)));

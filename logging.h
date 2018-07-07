@@ -5,8 +5,6 @@
 #include <errno.h>
 #include <string.h>
 
-#ifdef DEBUG
-
 #define CLEAN_ERRNO() (errno == 0 ? "None" : strerror(errno))
 
 #define LOG(level, M, ...) {				       \
@@ -27,11 +25,6 @@
 	    errno, CLEAN_ERRNO(), ##__VA_ARGS__);		\
   }								\
   }
-
-#define LOG_DEBUG(M, ...) LOG("DEBUG", M, ##__VA_ARGS__);		       
-#else
-#define LOG_DEBUG(M, ...)
-#endif
 
 #define LOG_INFO(M, ...) LOG("INFO ", M, ##__VA_ARGS__); 
 
@@ -59,10 +52,23 @@
       ret_val;					\
 })
 
+#ifdef DEBUG
+
+#define LOG_DEBUG(M, ...) LOG("DEBUG", M, ##__VA_ARGS__);
+
 #define CHECK_DEBUG(A, M, ...) \
   if(!(A)) {			     \
     LOG_DEBUG(M, ##__VA_ARGS__);     \
     exit(EXIT_FAILURE);		     \
   }
+
+#else
+
+#define LOG_DEBUG(M, ...)
+
+#define CHECK_DEBUG(A, M, ...)
+
+#endif
+
 
 #endif

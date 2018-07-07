@@ -24,6 +24,10 @@
  * IN THE SOFTWARE.
  */
 
+// disable warnings from imported library
+#pragma clang diagnostic ignored "-Wsign-conversion"
+#pragma clang diagnostic ignored "-Wstring-conversion"
+
 #include <assert.h>
 #include <stddef.h>
 #include <string.h>
