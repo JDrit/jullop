@@ -1,12 +1,14 @@
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
 
 #include "actor.h"
-#include "http_request.h"
 #include "actor_request.h"
 #include "actor_response.h"
+#include "http_request.h"
+#include "http_response.h"
 #include "logging.h"
 
 struct ActorArgs {
@@ -79,12 +81,13 @@ void *run_actor(void *pthread_input) {
 	     args->id,
 	     (int) http_request->method_len, http_request->method,
 	     (int) http_request->path_len, http_request->path);
-
-    size_t size = 256;
-    char *buf = (char*) CHECK_MEM(calloc(size, sizeof(char)));
-    sprintf(buf, "HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\nHello World", 11);
-
-    ActorResponse *response = init_actor_response(buf, size);
+  
+    char *http_response = init_http_response(500,
+					     http_request->path,
+					     http_request->path_len);
+    size_t size = strlen(http_response);
+    
+    ActorResponse *response = init_actor_response(http_response, size);
 
     write_http_response(args->fd, response);
   }
