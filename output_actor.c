@@ -78,32 +78,38 @@ static void register_client_output(EpollInfo *epoll_info,
 }
 
 static void read_actor_message(EpollInfo *epoll_info, OutputContext *output_context) {
-  ActorContext *actor_context = output_context->payload.actor_context;
-  enum ReadState state = message_read_async(actor_context->fd, &actor_context->message);
-
-  switch (state) {
-  case READ_BUSY:
-    LOG_DEBUG("Not enough input from actor");
-    break;
-  case READ_ERROR:
-    LOG_WARN("Error reading from actor");
-    break;
-  case CLIENT_DISCONNECT:
-    LOG_WARN("Client disconnect from actor");
-    break;
-  case READ_FINISH: {
-    /* Once the full message has been read from the application-level actor,
-     * register the client's file descriptor to start writing the response out */
-    RequestContext *request_context = (RequestContext*) message_get_payload(&actor_context->message);
-
-    /* The request context was originally created by the input actor thread and
-     * then modified by the application-level actor so we need to make sure that
-     * the cache lines have been flused. */
-    __sync_synchronize();
-    register_client_output(epoll_info, request_context);
-    message_reset(&actor_context->message);
-    break;
-  }
+  /* Since we are running the epoll event loop on edge-triggered, we need to read
+   * all of the data off the socket after each wake up. This is the reason the 
+   * following is in a loop. */
+  while (1) {
+    ActorContext *actor_context = output_context->payload.actor_context;
+    enum ReadState state = message_read_async(actor_context->fd, &actor_context->message);
+    
+    switch (state) {
+    case READ_BUSY:
+      LOG_DEBUG("Not enough input from actor");
+      return;
+    case READ_ERROR:
+      LOG_WARN("Error reading from actor");
+      return;
+    case CLIENT_DISCONNECT:
+      LOG_WARN("Client disconnect from actor");
+      return;
+    case READ_FINISH: {
+      /* Once the full message has been read from the application-level actor,
+       * register the client's file descriptor to start writing the response out */
+      RequestContext *request_context =
+	(RequestContext*) message_get_payload(&actor_context->message);
+      
+      /* The request context was originally created by the input actor thread and
+       * then modified by the application-level actor so we need to make sure that
+       * the cache lines have been flused. */
+      __sync_synchronize();
+      register_client_output(epoll_info, request_context);
+      message_reset(&actor_context->message);
+      break;
+    }
+    }
   }
 }
 

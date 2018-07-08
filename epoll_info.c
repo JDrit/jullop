@@ -41,7 +41,8 @@ void add_input_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   event.events = EPOLLIN | EPOLLET;
   event.data.ptr = ptr;
 
-  LOG_DEBUG("add fd=%d to accept reads %p", fd, ptr);
+  LOG_DEBUG("add epoll=%d fd=%d to accept reads",
+	    epoll->epoll_fd, fd);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_ADD, fd, &event);
   CHECK(r == -1, "failed to add input epoll event");
 }
@@ -52,7 +53,8 @@ void add_output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   event.events = EPOLLOUT | EPOLLET;
   event.data.ptr = ptr;
 
-  LOG_DEBUG("add fd=%d to accept writes %p", fd, ptr);
+  LOG_DEBUG("add epoll=%d fd=%d to accept writes",
+	    epoll->epoll_fd, fd);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_ADD, fd, &event);
   CHECK(r == -1, "failed to add output epoll event");
 }
@@ -63,7 +65,8 @@ void mod_input_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   event.events = EPOLLIN | EPOLLET;
   event.data.ptr = ptr;
 
-  LOG_DEBUG("modify fd=%d to accept reads %p", fd, ptr);
+  LOG_DEBUG("modify epoll=%d fd=%d to accept reads",
+	    epoll->epoll_fd, fd);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_MOD, fd, &event);
   CHECK(r == -1, "failed to modify input epoll event");
 }
@@ -74,7 +77,8 @@ void mod_output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   event.events = EPOLLOUT | EPOLLET;
   event.data.ptr = ptr;
 
-  LOG_DEBUG("modify fd=%d to accept write %p", fd, ptr);
+  LOG_DEBUG("modify epoll=%d fd=%d to accept write",
+	    epoll->epoll_fd, fd);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_MOD, fd, &event);
   CHECK(r == -1, "failed to modify output epoll event");
 }
@@ -82,8 +86,10 @@ void mod_output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
 void delete_epoll_event(EpollInfo *epoll, int fd) {
   struct epoll_event event;
 
-  LOG_DEBUG("delete fd=%d to accept all operations", fd);
+  LOG_DEBUG("delete epoll=%d fd=%d to accept all operations",
+	    epoll->epoll_fd, fd);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_DEL, fd, &event);
-  //CHECK(r == -1, "failed to delete epoll event");
+  CHECK(r == -1, "failed to delete epoll event for epoll=%d fd=%d",
+	epoll->epoll_fd, fd);
 }
 

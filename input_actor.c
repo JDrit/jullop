@@ -153,6 +153,11 @@ static void read_client_request(EpollInfo *epoll_info,
   switch (state) {
   case READ_FINISH: {
 
+    /* We have to deregister the file descriptor from the event loop 
+     * before we send it off or a race condition could cause it to be
+     * closed before the input actor finishes deleting the event. */
+    delete_epoll_event(epoll_info, request_context->fd);
+
     size_t actor_id = (count++) % (size_t) server->actor_count;
 
     //todo fix this not to be blocking
@@ -163,9 +168,6 @@ static void read_client_request(EpollInfo *epoll_info,
     message_init(&message, request_context);
 
     message_write_sync(fd, &message);
-
-    // remove the client's file descriptor from the input event loop.
-    delete_epoll_event(epoll_info, request_context->fd);
 
     // clean up the context used for reading client input.
     free(input_context);

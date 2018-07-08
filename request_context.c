@@ -79,6 +79,7 @@ static void print_request_stats(RequestContext *context, enum RequestResult resu
   
   LOG_INFO("Request Stats:");
   LOG_INFO("  result=%s", request_result_name(result));
+  LOG_INFO("  fd=%d", context->fd);
   LOG_INFO("  remote_host=%s", context->remote_host);
   LOG_INFO("  bytes_read=%zu", context->input_offset);
   LOG_INFO("  bytes_written=%zu", context->output_offset);
