@@ -56,7 +56,7 @@ void create_actor(Server *server, int id, ActorInfo *actor) {
   actor->id = id;
     
   int fds[2];
-  int r = socketpair(AF_LOCAL, SOCK_STREAM, 0, fds);
+  int r = socketpair(AF_LOCAL, SOCK_SEQPACKET, 0, fds);
   CHECK(r != 0, "Failed to create actor socket pair");
 
   actor->input_actor_fd = fds[0];
@@ -66,7 +66,7 @@ void create_actor(Server *server, int id, ActorInfo *actor) {
   r = fcntl(actor->input_actor_fd, F_SETFL, O_NONBLOCK);
   CHECK(r != 0, "Failed to set non-blocking");
 
-  r = socketpair(AF_LOCAL, SOCK_STREAM, 0, fds);
+  r = socketpair(AF_LOCAL, SOCK_SEQPACKET, 0, fds);
   CHECK(r != 0, "Failed to create actor socket pair");
 
   actor->actor_responses_fd = fds[0];

@@ -84,6 +84,6 @@ void delete_epoll_event(EpollInfo *epoll, int fd) {
 
   LOG_DEBUG("delete fd=%d to accept all operations", fd);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_DEL, fd, &event);
-  CHECK(r == -1, "failed to delete epoll event");
+  //CHECK(r == -1, "failed to delete epoll event");
 }
 

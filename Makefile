@@ -1,6 +1,6 @@
 CC=clang
 IGNORE_WARNINGS=-Wno-unused-parameter -Wno-unused-function
-CFLAGS=-std=gnu11 -c -g -O3 -Wall -Wextra -Wconversion -DDEBUG $(IGNORE_WARNINGS)
+CFLAGS=-std=gnu11 -c -g -O3 -Wall -Wextra -Wconversion $(IGNORE_WARNINGS)
 LIBS=-lpthread
 EXECUTABLE=jullop
 LDFLAGS=

@@ -135,6 +135,8 @@ static enum ReadState try_parse_http_request(RequestContext *request_context) {
   }
 }
 
+static size_t count = 0;
+
 /**
  * Handles when the client socket is ready to be read from. Reads as much as
  * possible until a full HTTP request has been parsed.
@@ -151,8 +153,10 @@ static void read_client_request(EpollInfo *epoll_info,
   switch (state) {
   case READ_FINISH: {
 
+    size_t actor_id = (count++) % (size_t) server->actor_count;
+
     //todo fix this not to be blocking
-    ActorInfo *actor_info = &server->app_actors[0];
+    ActorInfo *actor_info = &server->app_actors[actor_id];
     int fd = actor_info->input_actor_fd;
     
     Message message;

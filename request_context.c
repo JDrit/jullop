@@ -99,5 +99,9 @@ void request_finish_destroy(RequestContext *context, enum RequestResult result) 
   free(context->remote_host);
   free(context->input_buffer);
 
+  if (context->output_buffer != NULL) {
+    free(context->output_buffer);
+  }
+
   free(context);
 }
