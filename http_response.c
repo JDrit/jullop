@@ -1,6 +1,7 @@
-#include <math.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "http_response.h"
 #include "logging.h"
 
 #define STATUS_SIZE 12
@@ -33,7 +34,7 @@ static inline char *get_reason(int status_code) {
   case 307: return "Temporary Redirect";
 
   // 4xx: Client Error - The request contains bad syntax or cannot be fulfilled
-  case 400: return "Bad  Request";
+  case 400: return "Bad Request";
   case 401: return "Unauthorized";
   case 402: return "Payment Required";
   case 403: return "Forbidden";
@@ -78,22 +79,23 @@ static inline size_t str_size(size_t i) {
   return 10;
 }
 
-char *init_http_response(int status_code, const char *body, size_t body_len) {
+void init_http_response(HttpResponse *http_response, int status_code,
+			const char *body, size_t body_len) {
   char *reason_phrase = get_reason(status_code);
   size_t size =
     STATUS_SIZE + str_size((size_t) status_code) + strlen(reason_phrase) +
     CONTENT_SIZE + str_size(body_len) +
     BREAK_SIZE +
     body_len;
-  char *buf = (char*) CHECK_MEM(calloc(size, sizeof(char)));
-  sprintf(buf,
-	  "Http/1.1 %d %s\r\n"
-	  "Content-Length: %zd\r\n"
-	  "\r\n"
-	  "%.*s",
-	  status_code, reason_phrase,
-	  body_len,
-	  (int) body_len, body);
-  
-  return buf;
+  http_response->output = (char*) CHECK_MEM(calloc(size, sizeof(char)));
+  int r = sprintf(http_response->output,
+		  "Http/1.1 %d %s\r\n"
+		  "Content-Length: %zd\r\n"
+		  "\r\n"
+		  "%.*s",
+		  status_code, reason_phrase,
+		  body_len,
+		  (int) body_len, body);
+  CHECK(r < 0, "Error while constructing HTTP response");
+  http_response->output_len = (size_t) r;
 }

@@ -52,14 +52,12 @@ void *run_actor(void *pthread_input) {
 	     actor_info->id,
 	     (int) http_request.method_len, http_request.method,
 	     (int) http_request.path_len, http_request.path); */
-  
-    char *http_response = init_http_response(500,
-					     http_request.path,
-					     http_request.path_len);
-    size_t size = strlen(http_response);
 
-    request_context->output_buffer = http_response;
-    request_context->output_len = size;
+    HttpResponse http_response;
+    init_http_response(&http_response, 200, http_request.path, http_request.path_len);
+
+    request_context->output_buffer = http_response.output;
+    request_context->output_len = http_response.output_len;
 
     write_request_context(actor_info->actor_responses_fd, request_context);
   }

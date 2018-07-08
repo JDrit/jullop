@@ -5,9 +5,6 @@ typedef struct ActorInfo {
   /* unique identifier for the given actor. */
   int id;
 
-  /* the thread ID that the given actor is running on. */
-  pthread_t pthread_fd;
-
   /* the file descriptor that the input actor uses to send requests to
    * the application-level actors. */
   int input_actor_fd;
