@@ -2,23 +2,35 @@
 #define __server_h__
 
 typedef struct ActorInfo {
-  /* unique identifier for the given actor */
+  /* unique identifier for the given actor. */
   int id;
-  /* the thread ID that the given actor is running on */
+
+  /* the thread ID that the given actor is running on. */
   pthread_t pthread_fd;
-  /* the file descriptor that the event loop uses to communicate
-   * to this actor */
-  int selector_fd;
-  /* the file descriptor that the actor uses to communicate to
-   * the event loop */
-  int actor_fd;
+
+  /* the file descriptor that the input actor uses to send requests to
+   * the application-level actors. */
+  int input_actor_fd;
+
+  /* the file descriptor that the application-level actor uses to 
+   * listen for requests on. */
+  int actor_requests_fd;
+
+  /* the file descriptor that the actor uses to send back responses. */
+  int actor_responses_fd;
+
+  /* the file descriptor that the output actor uses to listen for
+   * request on. */
+  int output_actor_fd;
+  
 } ActorInfo;
 
 typedef struct Server {
   /* the amount of actor running on the server */
   int actor_count;
   /* the list of the actors running */
-  ActorInfo *actors;
+  ActorInfo *app_actors;
+  
 } Server;
 
 #endif

@@ -78,7 +78,7 @@ static inline size_t str_size(size_t i) {
   return 10;
 }
 
-char *init_http_response(int status_code, char *body, size_t body_len) {
+char *init_http_response(int status_code, const char *body, size_t body_len) {
   char *reason_phrase = get_reason(status_code);
   size_t size =
     STATUS_SIZE + str_size((size_t) status_code) + strlen(reason_phrase) +

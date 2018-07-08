@@ -29,8 +29,8 @@ enum ParseState {
  * Tries to parse out an HTTP request from the given buffer.
  *  Returns a enumeration detailing if there is more work to do or not.
  */
-enum ParseState http_parse(char* buffer, size_t buf_len, size_t prev_len,
-			   HttpRequest *request);
+enum ParseState http_request_parse(char* buffer, size_t buf_len,
+				   size_t prev_len, HttpRequest *request);
 
 void http_request_print(HttpRequest *request);
 

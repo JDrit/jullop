@@ -15,15 +15,16 @@
 #include <sys/epoll.h>
 
 #include "actor.h"
+#include "input_actor.h"
 #include "logging.h"
+#include "output_actor.h"
 #include "request_context.h"
-#include "event_loop.h"
 #include "server.h"
 
 #define PORT 8080
 #define QUEUE_LENGTH 100
 
-int create_socket() {
+static int create_socket() {
   int opt = 1;
   int sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
   CHECK(sock == -1, "failed to get socket");
@@ -36,6 +37,8 @@ int create_socket() {
 	"Failed to set options on TCP_NODELAY");
 
   struct sockaddr_in address;
+  memset(&address, 0, sizeof(address));
+  
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = INADDR_ANY;
   address.sin_port = htons(PORT);
@@ -50,31 +53,49 @@ int create_socket() {
 }
 
 void create_actor(Server *server, int id, ActorInfo *actor) {
+  actor->id = id;
+    
   int fds[2];
   int r = socketpair(AF_LOCAL, SOCK_STREAM, 0, fds);
   CHECK(r != 0, "Failed to create actor socket pair");
 
-  // sets the selector-side socket to be non-blocking but leaves the actor-side
-  // as blocking.
-  r = fcntl(fds[1], F_SETFL, O_NONBLOCK);
-  CHECK(r != 0, "Failed to set non-blocking");
+  actor->input_actor_fd = fds[0];
+  actor->actor_requests_fd = fds[1];
   
-  ActorArgs *args = init_actor_args(id, fds[0]);
-  r = pthread_create(&actor->pthread_fd, NULL, run_actor, args);
+  // sets the input-actor side file descriptor as non-blocking
+  r = fcntl(actor->input_actor_fd, F_SETFL, O_NONBLOCK);
+  CHECK(r != 0, "Failed to set non-blocking");
+
+  r = socketpair(AF_LOCAL, SOCK_STREAM, 0, fds);
+  CHECK(r != 0, "Failed to create actor socket pair");
+
+  actor->actor_responses_fd = fds[0];
+  actor->output_actor_fd = fds[1];
+
+  r = fcntl(actor->output_actor_fd, F_SETFL, O_NONBLOCK);
+  CHECK(r != 0, "Failed to set non-blocking");
+
+  pthread_t thread_id;
+  r = pthread_create(&thread_id, NULL, run_actor, actor);
   CHECK(r != 0, "Failed to create pthread %d", id);
 
-  r = pthread_detach(actor->pthread_fd);
-  CHECK(r != 0, "failed to detach pthread");
+  r = pthread_detach(thread_id);
+  CHECK(r != 0, "Failed to detach pthread");
 
   cpu_set_t cpu_set;
   CPU_ZERO(&cpu_set);
   CPU_SET(id, &cpu_set);
-  r = pthread_setaffinity_np(actor->pthread_fd, sizeof(cpu_set_t), &cpu_set);
+  r = pthread_setaffinity_np(thread_id, sizeof(cpu_set_t), &cpu_set);
   CHECK(r != 0, "Failed to set cpu infinity to %d", id);
+}
 
-  actor->id = id;
-  actor->selector_fd = fds[1];
-  actor->actor_fd = fds[0];
+void create_output_actor(Server *server) {
+  pthread_t thread;
+  int r = pthread_create(&thread, NULL, output_event_loop, server);
+  CHECK(r != 0, "Failed to create output actor thread");
+
+  r = pthread_detach(thread);
+  CHECK(r != 0, "Failed to detach pthread");
 }
 
 int main(int argc, char* argv[]) {
@@ -84,9 +105,10 @@ int main(int argc, char* argv[]) {
 
   struct Server server;
   server.actor_count = cores;
-  server.actors = (ActorInfo*) CHECK_MEM(calloc((size_t) cores, sizeof(ActorInfo)));
+  server.app_actors = (ActorInfo*) CHECK_MEM(calloc((size_t) cores, sizeof(ActorInfo)));
   for (int i = 0 ; i < cores ; i++) {
-    create_actor(&server, i, &server.actors[i]);
+    create_actor(&server, i, &server.app_actors[i]);
   }
-  event_loop(&server, sock_fd);
+  create_output_actor(&server);
+  input_event_loop(&server, sock_fd);
 }

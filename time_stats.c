@@ -13,11 +13,11 @@ inline static time_t get_time_delta(struct timespec *start_time,
   return microseconds;  
 }
 
-void set_request_start_time(TimeStats *time_stats) {
+void request_set_start(TimeStats *time_stats) {
   get_time(&time_stats->request_start);
 }
 
-void set_request_end_time(TimeStats *time_stats) {
+void request_set_end(TimeStats *time_stats) {
   struct timespec request_end;
   get_time(&request_end);
 
@@ -26,15 +26,15 @@ void set_request_end_time(TimeStats *time_stats) {
 					       
 }
 
-time_t get_total_request_time(TimeStats *time_stats) {
+time_t request_get_total_time(TimeStats *time_stats) {
   return time_stats->request_micros;
 }
 
-void set_client_read_start_time(TimeStats *time_stats) {
+void request_set_client_read_start(TimeStats *time_stats) {
   get_time(&time_stats->client_start_read);
 }
 
-void set_client_read_end_time(TimeStats *time_stats) {
+void request_set_client_read_end(TimeStats *time_stats) {
   struct timespec client_end_read;
   get_time(&client_end_read);
 
@@ -42,15 +42,15 @@ void set_client_read_end_time(TimeStats *time_stats) {
 						   &client_end_read);
 }
 
-time_t get_client_read_time(TimeStats *time_stats) {
+time_t request_get_client_read_time(TimeStats *time_stats) {
   return time_stats->client_read_micros;
 }
 
-void set_client_write_start_time(TimeStats *time_stats) {
+void request_set_client_write_start(TimeStats *time_stats) {
   get_time(&time_stats->client_start_write);
 }
 
-void set_client_write_end_time(TimeStats *time_stats) {
+void request_set_client_write_end(TimeStats *time_stats) {
   struct timespec client_end_write;
   get_time(&client_end_write);
 
@@ -58,15 +58,15 @@ void set_client_write_end_time(TimeStats *time_stats) {
 						    &client_end_write);
 }
 
-time_t get_client_write_time(TimeStats *time_stats) {
+time_t request_get_client_write_time(TimeStats *time_stats) {
   return time_stats->client_write_micros;
 }
 
-void set_actor_start_time(TimeStats *time_stats) {
+void request_set_actor_start(TimeStats *time_stats) {
   get_time(&time_stats->actor_start);
 }
 
-void set_actor_end_time(TimeStats *time_stats) {
+void request_set_actor_end(TimeStats *time_stats) {
   struct timespec actor_end;
   get_time(&actor_end);
 
@@ -74,6 +74,6 @@ void set_actor_end_time(TimeStats *time_stats) {
 					     &actor_end);
 }
 
-time_t get_actor_time(TimeStats *time_stats) {
+time_t request_get_actor_time(TimeStats *time_stats) {
   return time_stats->actor_micros;
 }
