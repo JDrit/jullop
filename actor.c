@@ -46,6 +46,7 @@ void *run_actor(void *pthread_input) {
 
   while (1) {
     RequestContext *request_context = read_request_context(actor_info->actor_requests_fd);
+    LOG_DEBUG("Actor %d received request", actor_info->id);
     
     HttpRequest http_request = request_context->http_request;
     /*LOG_INFO("actor %d received request: %.*s %.*s",
@@ -59,7 +60,9 @@ void *run_actor(void *pthread_input) {
     request_context->output_buffer = http_response.output;
     request_context->output_len = http_response.output_len;
 
+    LOG_DEBUG("Actor %d starting to write response", actor_info->id);
     write_request_context(actor_info->actor_responses_fd, request_context);
+    LOG_DEBUG("Actor %d finished writing response", actor_info->id);
   }
   
   return NULL;

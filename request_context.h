@@ -3,8 +3,6 @@
 
 #include <stdint.h>
 
-#include "actor_request.h"
-#include "actor_response.h"
 #include "http_request.h"
 #include "server.h"
 #include "time_stats.h"

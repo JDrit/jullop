@@ -82,6 +82,7 @@ static InputContext *init_client_input_context(RequestContext *request_context) 
  */
 RequestContext* process_accept(EpollInfo *epoll_info, int accept_fd) {
   struct sockaddr_in in_addr;
+  
   socklen_t size = sizeof(in_addr);
   int conn_sock = accept(accept_fd, (struct sockaddr *) &in_addr, &size);
   CHECK(conn_sock == -1, "failed to accept connection");
@@ -193,7 +194,8 @@ static void read_client_request(EpollInfo *epoll_info,
  * Runs the event loop and listens for connections on the given socket.
  */
 void input_event_loop(Server *server, int sock_fd) {
-  EpollInfo *epoll_info = init_epoll_info();
+  const char *name = "input actor";
+  EpollInfo *epoll_info = init_epoll_info(name);
   set_accept_epoll_event(epoll_info, sock_fd);
 
   /*

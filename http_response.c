@@ -8,7 +8,7 @@
 #define CONTENT_SIZE 18
 #define BREAK_SIZE 2
 
-static inline char *get_reason(int status_code) {
+static inline const char *get_reason(int status_code) {
   switch (status_code) {
 
   // 1xx: Informational - Request received, continuing process
@@ -81,7 +81,7 @@ static inline size_t str_size(size_t i) {
 
 void init_http_response(HttpResponse *http_response, int status_code,
 			const char *body, size_t body_len) {
-  char *reason_phrase = get_reason(status_code);
+  const char *reason_phrase = get_reason(status_code);
   size_t size =
     STATUS_SIZE + str_size((size_t) status_code) + strlen(reason_phrase) +
     CONTENT_SIZE + str_size(body_len) +

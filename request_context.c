@@ -5,8 +5,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "actor_request.h"
-#include "actor_response.h"
 #include "http_request.h"
 #include "logging.h"
 #include "request_context.h"
@@ -77,17 +75,18 @@ static void print_request_stats(RequestContext *context, enum RequestResult resu
   time_t client_write = request_get_client_write_time(&context->time_stats);
   time_t actor_time = request_get_actor_time(&context->time_stats);
   
-  LOG_INFO("Request Stats:");
-  LOG_INFO("  result=%s", request_result_name(result));
-  LOG_INFO("  fd=%d", context->fd);
-  LOG_INFO("  remote_host=%s", context->remote_host);
-  LOG_INFO("  bytes_read=%zu", context->input_offset);
-  LOG_INFO("  bytes_written=%zu", context->output_offset);
-  LOG_INFO("Time Stats:");
-  LOG_INFO("  total_micros=%ld", total_request);
-  LOG_INFO("  client_read_micros=%ld", client_read);
-  LOG_INFO("  actor_micros=%ld", actor_time);
-  LOG_INFO("  client_write_micros=%ld", client_write);
+  LOG_INFO("Request Stats : result=%s fd=%d remote_host=%s bytes_read=%zu bytes_written=%zu",
+	   request_result_name(result),
+	   context->fd,
+	   context->remote_host,
+	   context->input_offset,
+	   context->output_offset);
+  LOG_INFO("Time Stats    : total_micros=%ld client_read_micros=%ld "
+	   "actor_micros=%ld client_write_micros=%ld",
+	   total_request,
+	   client_read,
+	   actor_time,
+	   client_write);
 }
 
 void request_finish_destroy(RequestContext *context, enum RequestResult result) {

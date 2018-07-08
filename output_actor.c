@@ -140,7 +140,8 @@ static void write_client_response(EpollInfo *epoll_info, OutputContext *output_c
 
 void *output_event_loop(void *pthread_input) {
   Server *server = (Server*) pthread_input;
-  EpollInfo *epoll_info = init_epoll_info();
+  const char *name = "output actor";
+  EpollInfo *epoll_info = init_epoll_info(name);
 
   /*
    * Registers each application-level actor pipeline so that the output actor

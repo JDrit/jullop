@@ -18,6 +18,8 @@ struct Stats {
 typedef struct EpollInfo {
   /* The file descriptor that is used to run the epoll event loop */
   int epoll_fd;
+  /* a name to give to the epoll event loop for helpful messages */
+  const char *name;
   /* server wide stats */
   struct Stats stats;
 } EpollInfo;
@@ -31,7 +33,7 @@ enum EpollError {
  * Creates epoll event loop. The given `accept_fd` is the file descriptor
  * used to listen to new requests on.
  */
-EpollInfo *init_epoll_info();
+EpollInfo *init_epoll_info(const char *name);
 
 /**
  * Registers the accept file descriptor to start accepting new requests.

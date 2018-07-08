@@ -5,11 +5,12 @@
 #include "epoll_info.h"
 #include "logging.h"
 
-EpollInfo *init_epoll_info() {
+EpollInfo *init_epoll_info(const char *name) {
   EpollInfo *epoll_info = (EpollInfo*) CHECK_MEM(calloc(1, sizeof(EpollInfo)));
   int epoll_fd = epoll_create(1);
-  CHECK(epoll_fd == -1, "failed to create epoll file descriptor");
+  CHECK(epoll_fd == -1, "Failed to create epoll file descriptor");
   epoll_info->epoll_fd = epoll_fd;
+  epoll_info->name = name;
   return epoll_info;
 }
 
@@ -20,15 +21,18 @@ void set_accept_epoll_event(EpollInfo *epoll, int fd) {
   event.events = EPOLLIN | EPOLLET;
 
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_ADD, fd, &event);
-  CHECK(r == -1, "failed to register accept file descriptor");  
+  CHECK(r == -1, "Failed to register accept file descriptor for %s",
+	epoll->name);  
 }
 
 enum EpollError check_epoll_errors(EpollInfo *epoll, struct epoll_event *event) {
   if (event->events & EPOLLERR) {
-    LOG_WARN("Epoll event error due to read side of the socket closing");
+    LOG_WARN("Epoll event error on %s due to read side of the socket closing",
+	     epoll->name);
     return EPOLL_ERROR;
   } else if (event->events & EPOLLHUP) {
-    LOG_WARN("Epoll event error due to peer closing connection");    
+    LOG_WARN("Epoll event error on %s due to peer closing connection",
+	     epoll->name);
     return EPOLL_ERROR;
   } else {
     return NONE;
@@ -41,10 +45,9 @@ void add_input_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   event.events = EPOLLIN | EPOLLET;
   event.data.ptr = ptr;
 
-  LOG_DEBUG("add epoll=%d fd=%d to accept reads",
-	    epoll->epoll_fd, fd);
+  LOG_DEBUG("Add input event on %s for fd=%d", epoll->name, fd);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_ADD, fd, &event);
-  CHECK(r == -1, "failed to add input epoll event");
+  CHECK(r == -1, "Failed to add input epoll event for %s", epoll->name);
 }
 
 void add_output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
@@ -53,10 +56,9 @@ void add_output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   event.events = EPOLLOUT | EPOLLET;
   event.data.ptr = ptr;
 
-  LOG_DEBUG("add epoll=%d fd=%d to accept writes",
-	    epoll->epoll_fd, fd);
+  LOG_DEBUG("Add output event on %s for fd=%d", epoll->name, fd);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_ADD, fd, &event);
-  CHECK(r == -1, "failed to add output epoll event");
+  CHECK(r == -1, "Failed to add output epoll event for %s", epoll->name);
 }
 
 void mod_input_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
@@ -65,10 +67,9 @@ void mod_input_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   event.events = EPOLLIN | EPOLLET;
   event.data.ptr = ptr;
 
-  LOG_DEBUG("modify epoll=%d fd=%d to accept reads",
-	    epoll->epoll_fd, fd);
+  LOG_DEBUG("Modify input event on %s for fd=%d", epoll->name, fd);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_MOD, fd, &event);
-  CHECK(r == -1, "failed to modify input epoll event");
+  CHECK(r == -1, "Failed to modify input epoll event for %s", epoll->name);
 }
 
 void mod_output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
@@ -77,19 +78,16 @@ void mod_output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   event.events = EPOLLOUT | EPOLLET;
   event.data.ptr = ptr;
 
-  LOG_DEBUG("modify epoll=%d fd=%d to accept write",
-	    epoll->epoll_fd, fd);
+  LOG_DEBUG("Modify output event on %s for fd=%d", epoll->name, fd);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_MOD, fd, &event);
-  CHECK(r == -1, "failed to modify output epoll event");
+  CHECK(r == -1, "Failed to modify output event for %s", epoll->name);
 }
 
 void delete_epoll_event(EpollInfo *epoll, int fd) {
   struct epoll_event event;
 
-  LOG_DEBUG("delete epoll=%d fd=%d to accept all operations",
-	    epoll->epoll_fd, fd);
+  LOG_DEBUG("Delete event on %s for fd=%d", epoll->name, fd);
   int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_DEL, fd, &event);
-  CHECK(r == -1, "failed to delete epoll event for epoll=%d fd=%d",
-	epoll->epoll_fd, fd);
+  CHECK(r == -1, "Failed to delete event for %s", epoll->name);
 }
 
