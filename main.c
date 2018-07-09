@@ -82,6 +82,12 @@ void create_actor(Server *server, int id, ActorInfo *actor) {
   r = pthread_detach(thread_id);
   CHECK(r != 0, "Failed to detach pthread");
 
+  size_t max_name_size = 16;
+  char *name = (char*) CHECK_MEM(calloc(1, sizeof(max_name_size)));
+  snprintf(name, max_name_size, "actor-%d", actor->id);
+  r = pthread_setname_np(thread_id, name);
+  CHECK(r != 0, "Failed to set actor %d name", actor->id);
+  
   cpu_set_t cpu_set;
   CPU_ZERO(&cpu_set);
   CPU_SET(id, &cpu_set);
@@ -96,6 +102,12 @@ void create_output_actor(Server *server) {
 
   r = pthread_detach(thread);
   CHECK(r != 0, "Failed to detach pthread");
+
+  const char *name = "output-actor";
+  r = pthread_setname_np(thread, name);
+  CHECK(r != 0, "Failed to set output actor name");
+  
+  
 }
 
 int main(int argc, char* argv[]) {

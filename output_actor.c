@@ -155,9 +155,10 @@ void *output_event_loop(void *pthread_input) {
 
   while (1) {
     struct epoll_event events[MAX_EVENTS];
-    int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
+    int timeout = 5 * 1000; // 10 seconds
+    int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, timeout);
     CHECK(ready_amount == -1, "Error while waiting for epoll events");
-    LOG_DEBUG("output epoll events: %d", ready_amount);
+    LOG_DEBUG("Output epoll events: %d", ready_amount);
 
     for (int i = 0 ; i < ready_amount ; i++) {
       if (check_epoll_errors(epoll_info, &events[i]) != NONE) {
@@ -167,13 +168,11 @@ void *output_event_loop(void *pthread_input) {
       OutputContext *output_context = (OutputContext*) events[i].data.ptr;
 
       if (events[i].events & EPOLLIN && output_context->type == ACTOR) {
-	read_actor_message(epoll_info, output_context);
-	
-      } else if (events[i].events & EPOLLOUT && output_context->type == CLIENT) {
+	read_actor_message(epoll_info, output_context);	
+      }
+
+      if (events[i].events & EPOLLOUT && output_context->type == CLIENT) {
 	write_client_response(epoll_info, output_context);
-	
-      } else {
-	LOG_WARN("Unknown epoll event occurred");
       }
     }
   }

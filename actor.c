@@ -12,7 +12,7 @@
 #include "request_context.h"
 #include "time_stats.h"
 
-RequestContext *read_request_context(int fd) {
+static RequestContext *read_request_context(int fd) {
   Message message;
   message_reset(&message);
   
@@ -27,7 +27,7 @@ RequestContext *read_request_context(int fd) {
   return request_context;
 }
 
-void write_request_context(int fd, RequestContext *request_context) {
+static void write_request_context(int fd, RequestContext *request_context) {
   request_set_actor_end(&request_context->time_stats);
   
   Message message;
@@ -46,13 +46,13 @@ void *run_actor(void *pthread_input) {
 
   while (1) {
     RequestContext *request_context = read_request_context(actor_info->actor_requests_fd);
-    LOG_DEBUG("Actor %d received request", actor_info->id);
+    
     
     HttpRequest http_request = request_context->http_request;
-    /*LOG_INFO("actor %d received request: %.*s %.*s",
+    LOG_INFO("actor %d received request: %.*s %.*s",
 	     actor_info->id,
 	     (int) http_request.method_len, http_request.method,
-	     (int) http_request.path_len, http_request.path); */
+	     (int) http_request.path_len, http_request.path);
 
     HttpResponse http_response;
     init_http_response(&http_response, 200, http_request.path, http_request.path_len);

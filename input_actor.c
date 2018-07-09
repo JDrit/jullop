@@ -46,6 +46,7 @@ typedef struct InputContext {
 void close_client_connection(EpollInfo *epoll_info,
 			     InputContext *input_context,
 			     enum RequestResult result) {
+  
   RequestContext *request_context = input_context->payload.request_context;
   
   epoll_info->stats.active_connections--;
@@ -159,7 +160,9 @@ static void read_client_request(EpollInfo *epoll_info,
      * closed before the input actor finishes deleting the event. */
     delete_epoll_event(epoll_info, request_context->fd);
 
-    size_t actor_id = (count++) % (size_t) server->actor_count;
+    http_request_print(&request_context->http_request);
+    
+    size_t actor_id = 0; //(count++) % (size_t) server->actor_count;
 
     //todo fix this not to be blocking
     ActorInfo *actor_info = &server->app_actors[actor_id];
@@ -202,17 +205,20 @@ void input_event_loop(Server *server, int sock_fd) {
    * Registers each application-level actor input socket so that the input
    * actor can start to send requests to it.
    */
+  /*
   for (int i = 0 ; i < server->actor_count ; i++) {
     int fd = server->app_actors[i].input_actor_fd;
     InputContext *input_context = init_actor_input_context(fd);
     add_output_epoll_event(epoll_info, fd, input_context);
   }
+  */
   
   while (1) {
-    struct epoll_event events[MAX_EVENTS];    
-    int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
-    CHECK(ready_amount == -1, "failed waiting on epoll");
-    LOG_DEBUG("input epoll events: %d", ready_amount);
+    struct epoll_event events[MAX_EVENTS];
+    int timeout = 5 * 1000; // 10 seconds
+    int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, timeout);
+    CHECK(ready_amount == -1, "Failed waiting on epoll");
+    LOG_DEBUG("Input epoll events: %d", ready_amount);
     
     for (int i = 0 ; i < ready_amount ; i++) {
       if (check_epoll_errors(epoll_info, &events[i]) != NONE) {

@@ -38,6 +38,8 @@
     exit(EXIT_FAILURE);			    \
   }
 
+#define FAIL(M, ...) CHECK(1, M, ##__VA_ARGS__);
+
 #define sentinel(M, ...) { \
   LOG_ERROR(M, ##__VA_ARGS__);		\
   exit(EXIT_FAILURE);			\

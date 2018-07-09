@@ -1,6 +1,6 @@
 CC=clang
 IGNORE_WARNINGS=-Wno-unused-parameter -Wno-unused-function
-CFLAGS=-std=gnu11 -c -g -O3 -Wall -Wextra -Wconversion -DDEBUG $(IGNORE_WARNINGS)
+CFLAGS=-std=gnu11 -c -g -O0 -Wall -Wextra -Wconversion -DDEBUG $(IGNORE_WARNINGS)
 LIBS=-lpthread
 EXECUTABLE=jullop
 LDFLAGS=
@@ -10,7 +10,7 @@ OBJECTS=$(SOURCES:.c=.o)
 all: $(SOURCES) $(EXECUTABLE)
 
 $(EXECUTABLE): $(OBJECTS)
-	$(CC) $(LDFLAGS) $(LIBS) $(OBJECTS) -o $@
+	$(CC) -g $(LDFLAGS) $(LIBS) $(OBJECTS) -o $@
 
 .c.o:
 	$(CC) $(CFLAGS) $< -o $@

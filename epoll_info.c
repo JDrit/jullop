@@ -29,6 +29,7 @@ enum EpollError check_epoll_errors(EpollInfo *epoll, struct epoll_event *event) 
   if (event->events & EPOLLERR) {
     LOG_WARN("Epoll event error on %s due to read side of the socket closing",
 	     epoll->name);
+    CHECK(1, "fail");
     return EPOLL_ERROR;
   } else if (event->events & EPOLLHUP) {
     LOG_WARN("Epoll event error on %s due to peer closing connection",
@@ -42,7 +43,7 @@ enum EpollError check_epoll_errors(EpollInfo *epoll, struct epoll_event *event) 
 void add_input_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   struct epoll_event event;
   memset(&event, 0, sizeof(event));
-  event.events = EPOLLIN | EPOLLET;
+  event.events = EPOLLIN;
   event.data.ptr = ptr;
 
   LOG_DEBUG("Add input event on %s for fd=%d", epoll->name, fd);
@@ -53,7 +54,7 @@ void add_input_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
 void add_output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   struct epoll_event event;
   memset(&event, 0, sizeof(event));
-  event.events = EPOLLOUT | EPOLLET;
+  event.events = EPOLLOUT;
   event.data.ptr = ptr;
 
   LOG_DEBUG("Add output event on %s for fd=%d", epoll->name, fd);
@@ -64,7 +65,7 @@ void add_output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
 void mod_input_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   struct epoll_event event;
   memset(&event, 0, sizeof(event));
-  event.events = EPOLLIN | EPOLLET;
+  event.events = EPOLLIN;
   event.data.ptr = ptr;
 
   LOG_DEBUG("Modify input event on %s for fd=%d", epoll->name, fd);
@@ -75,7 +76,7 @@ void mod_input_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
 void mod_output_epoll_event(EpollInfo *epoll, int fd, void *ptr) {
   struct epoll_event event;
   memset(&event, 0, sizeof(event));
-  event.events = EPOLLOUT | EPOLLET;
+  event.events = EPOLLOUT;
   event.data.ptr = ptr;
 
   LOG_DEBUG("Modify output event on %s for fd=%d", epoll->name, fd);

@@ -26,17 +26,18 @@ void *message_get_payload(Message *message) {
 
 void message_write_sync(int fd, Message *message) {
   do {
+    LOG_DEBUG("Starting blocking write on fd=%d", fd);
     void *start_addr = message->buffer + message->offset;
     size_t num_to_write = sizeof(size_t) - message->offset;
     ssize_t num_written = write(fd, start_addr, num_to_write);
-
+    
     if (num_written == -1) {
       LOG_WARN("Error during blocking write");
     } else {
       message->offset += (size_t) num_written;
     }
   } while (message->offset < sizeof(size_t));
-
+  
   LOG_DEBUG("Finished blocking write on fd=%d", fd);
 }
 
@@ -72,8 +73,8 @@ enum WriteState write_async(int fd, void *buffer, size_t buffer_len,
     size_t num_to_write = buffer_len - *offset;
     ssize_t num_written = write(fd, start_addr, num_to_write);
 
-    if (num_written < 0) {
-      if (errno == EAGAIN) {
+    if (num_written == -1) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
 	errno = 0;
 	return WRITE_BUSY;
       } else {
@@ -93,8 +94,8 @@ enum ReadState read_async(int fd, void *buffer, size_t buffer_len,
     size_t num_to_read = buffer_len - *offset;
     ssize_t num_read = read(fd, start_addr, num_to_read);
 
-    if (num_read < 0) {
-      if (errno == EAGAIN) {
+    if (num_read == -1) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
 	errno = 0;
 	return READ_BUSY;
       } else {
