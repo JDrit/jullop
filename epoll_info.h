@@ -35,6 +35,8 @@ enum EpollError {
  */
 EpollInfo *init_epoll_info(const char *name);
 
+void epoll_info_print(EpollInfo *epoll);
+
 /**
  * Registers the accept file descriptor to start accepting new requests.
  * The given EpollInfo is registered as the event context.

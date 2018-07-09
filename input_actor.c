@@ -43,9 +43,9 @@ typedef struct InputContext {
 /**
  * Cleans up client requests.
  */
-void close_client_connection(EpollInfo *epoll_info,
-			     InputContext *input_context,
-			     enum RequestResult result) {
+static void close_client_connection(EpollInfo *epoll_info,
+				    InputContext *input_context,
+				    enum RequestResult result) {
   
   RequestContext *request_context = input_context->payload.request_context;
   
@@ -79,14 +79,22 @@ static InputContext *init_client_input_context(RequestContext *request_context) 
 
 /**
  * Opens up the waiting connection from the given socket. Returns
- * the request context that will be used to handle this request.
+ * the request context that will be used to handle this request. This
+ * can return NULL if no connection was successfully established.
  */
 RequestContext* process_accept(EpollInfo *epoll_info, int accept_fd) {
   struct sockaddr_in in_addr;
   
   socklen_t size = sizeof(in_addr);
   int conn_sock = accept(accept_fd, (struct sockaddr *) &in_addr, &size);
-  CHECK(conn_sock == -1, "failed to accept connection");
+  if (conn_sock == -1) {
+    if (ERROR_BLOCK) {
+      return NULL;
+    } else {
+      FAIL("Failed to accept connection");
+    }
+  }
+  
   fcntl(conn_sock, F_SETFL, O_NONBLOCK);
 
   char* hbuf = (char*) CHECK_MEM(calloc(NI_MAXHOST, sizeof(char)));
@@ -97,7 +105,7 @@ RequestContext* process_accept(EpollInfo *epoll_info, int accept_fd) {
 		      sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV);
   CHECK(r == -1, "Failed to get host name");
   
-  LOG_DEBUG("new request from %s:%s", hbuf, sbuf);
+  LOG_DEBUG("New request from %s:%s", hbuf, sbuf);
   epoll_info->stats.active_connections++;
   epoll_info->stats.total_requests_processed++;
   return init_request_context(conn_sock, hbuf);
@@ -160,6 +168,8 @@ static void read_client_request(EpollInfo *epoll_info,
      * closed before the input actor finishes deleting the event. */
     delete_epoll_event(epoll_info, request_context->fd);
 
+    epoll_info->stats.active_connections--;
+
     http_request_print(&request_context->http_request);
     
     size_t actor_id = 0; //(count++) % (size_t) server->actor_count;
@@ -219,6 +229,7 @@ void input_event_loop(Server *server, int sock_fd) {
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, timeout);
     CHECK(ready_amount == -1, "Failed waiting on epoll");
     LOG_DEBUG("Input epoll events: %d", ready_amount);
+    epoll_info_print(epoll_info);
     
     for (int i = 0 ; i < ready_amount ; i++) {
       if (check_epoll_errors(epoll_info, &events[i]) != NONE) {
@@ -230,6 +241,11 @@ void input_event_loop(Server *server, int sock_fd) {
 	// handle setting up the new client connection and add it to
 	// the epoll event loop.
 	RequestContext *request_context = process_accept(epoll_info, sock_fd);
+	if (request_context == NULL) {
+	  // an error occurred while trying to create the connection, ignore
+	  // this can continue.
+	  continue;
+	}
 	request_set_start(&request_context->time_stats);
 	int fd = request_context->fd;
 	InputContext *input_context = init_client_input_context(request_context);

@@ -14,6 +14,15 @@ EpollInfo *init_epoll_info(const char *name) {
   return epoll_info;
 }
 
+void epoll_info_print(EpollInfo *epoll) {
+  LOG_INFO("name='%s' active=%ld total=%ld bytes_read=%ld bytes_written=%ld",
+	   epoll->name,
+	   epoll->stats.active_connections,
+	   epoll->stats.total_requests_processed,
+	   epoll->stats.bytes_read,
+	   epoll->stats.bytes_written);
+}
+
 void set_accept_epoll_event(EpollInfo *epoll, int fd) {
   struct epoll_event event;
   memset(&event, 0, sizeof(event));

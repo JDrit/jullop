@@ -74,7 +74,7 @@ enum WriteState write_async(int fd, void *buffer, size_t buffer_len,
     ssize_t num_written = write(fd, start_addr, num_to_write);
 
     if (num_written == -1) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      if (ERROR_BLOCK) {
 	errno = 0;
 	return WRITE_BUSY;
       } else {
@@ -95,7 +95,7 @@ enum ReadState read_async(int fd, void *buffer, size_t buffer_len,
     ssize_t num_read = read(fd, start_addr, num_to_read);
 
     if (num_read == -1) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      if (ERROR_BLOCK) {
 	errno = 0;
 	return READ_BUSY;
       } else {

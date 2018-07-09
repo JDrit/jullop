@@ -27,7 +27,7 @@
 static int create_socket() {
   int opt = 1;
   int sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-  CHECK(sock == -1, "failed to get socket");
+  CHECK(sock == -1, "Failed to get socket");
 
   // allows reusing of the same address and port
   CHECK(setsockopt(sock, SOL_SOCKET, SO_REUSEPORT | SO_REUSEADDR, &opt, sizeof(opt)) == -1,

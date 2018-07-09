@@ -5,6 +5,10 @@
 #include <errno.h>
 #include <string.h>
 
+// Check if the given error condition is due to
+// blocking IO
+#define ERROR_BLOCK errno == EAGAIN || errno == EWOULDBLOCK
+
 #define CLEAN_ERRNO() (errno == 0 ? "None" : strerror(errno))
 
 #define LOG(level, M, ...) {				       \
