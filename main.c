@@ -105,9 +105,15 @@ void create_output_actor(Server *server) {
 
   const char *name = "output-actor";
   r = pthread_setname_np(thread, name);
-  CHECK(r != 0, "Failed to set output actor name");
-  
-  
+  CHECK(r != 0, "Failed to set output actor name");   
+}
+
+void create_input_actor(Server *server) {
+  //todo make this a separate thread later
+  pthread_t thread_id = pthread_self();
+  const char *name = "input-actor";
+  int r = pthread_setname_np(thread_id, name);
+  CHECK(r != 0, "Failed to set input actor name");
 }
 
 int main(int argc, char* argv[]) {
@@ -122,6 +128,10 @@ int main(int argc, char* argv[]) {
   for (int i = 0 ; i < cores ; i++) {
     create_actor(&server, i, &server.app_actors[i]);
   }
+
   create_output_actor(&server);
+
+  create_input_actor(&server);
+  
   input_event_loop(&server, sock_fd);
 }

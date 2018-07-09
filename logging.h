@@ -13,15 +13,15 @@
 #define CLEAN_ERRNO() (errno == 0 ? "None" : strerror(errno))
 
 #define LOG(level, M, ...) {						\
-    char __thread_buffer[20];						\
+  char __thread_buffer[20];						\
   pthread_t __thread_id = pthread_self();				\
-    pthread_getname_np(__thread_id, __thread_buffer, 20);			\
+  pthread_getname_np(__thread_id, __thread_buffer, 20);			\
   fprintf(stderr, "[" level "] [%s] (%s:%d) " M "\n",			\
 	  __thread_buffer, __FILE__, __LINE__, ##__VA_ARGS__);		\
   }
 
 #define ERR_LOG(level, M, ...) {					\
-  char __thread_buffer[20];					\
+  char __thread_buffer[20];						\
   pthread_t __thread_id = pthread_self();				\
   pthread_getname_np(__thread_id, __thread_buffer, 20);			\
   if (errno == 0) {							\
@@ -29,7 +29,7 @@
 	    __thread_buffer, __FILE__, __LINE__, ##__VA_ARGS__);	\
   } else {								\
     fprintf(stderr, "[" level "] [%s] (%s:%d) (errno: %d %s) " M "\n",	\
-	    __thread_buffer, __FILE__, __LINE__, errno, CLEAN_ERRNO(), \
+	    __thread_buffer, __FILE__, __LINE__, errno, CLEAN_ERRNO(),	\
 	    ##__VA_ARGS__);						\
   }									\
   }

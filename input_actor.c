@@ -80,37 +80,44 @@ static InputContext *init_client_input_context(RequestContext *request_context) 
 }
 
 /**
- * Opens up the waiting connection from the given socket. Returns
- * the request context that will be used to handle this request. This
- * can return NULL if no connection was successfully established.
+ * Accepts as many as possible waiting connections and registers them all in the 
+ * input event loop. This can register multiple connections in one go.
  */
-RequestContext* process_accept(EpollInfo *epoll_info, int accept_fd) {
-  struct sockaddr_in in_addr;
-  
-  socklen_t size = sizeof(in_addr);
-  int conn_sock = accept(accept_fd, (struct sockaddr *) &in_addr, &size);
-  if (conn_sock == -1) {
-    if (ERROR_BLOCK) {
-      return NULL;
-    } else {
-      FAIL("Failed to accept connection");
+void process_accepts(EpollInfo *epoll_info, int accept_fd) {
+
+  while (1) {
+    struct sockaddr_in in_addr;
+    socklen_t size = sizeof(in_addr);
+    int conn_sock = accept(accept_fd, (struct sockaddr *) &in_addr, &size);
+    if (conn_sock == -1) {
+      if (ERROR_BLOCK) {
+	return;
+      } else {
+	FAIL("Failed to accept connection");
+      }
     }
+    
+    fcntl(conn_sock, F_SETFL, O_NONBLOCK);
+    
+    char* hbuf = (char*) CHECK_MEM(calloc(NI_MAXHOST, sizeof(char)));
+    char sbuf[NI_MAXSERV];
+    
+    int r = getnameinfo((struct sockaddr*) &in_addr, size, hbuf,
+			NI_MAXHOST * sizeof(char), sbuf,
+			sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV);
+    CHECK(r == -1, "Failed to get host name");
+    
+    LOG_DEBUG("New request from %s:%s", hbuf, sbuf);
+    epoll_info->stats.active_connections++;
+    epoll_info->stats.total_requests_processed++;
+
+    RequestContext *request_context = init_request_context(conn_sock, hbuf);
+    request_set_start(&request_context->time_stats);
+
+    int fd = request_context->fd;
+    InputContext *input_context = init_client_input_context(request_context);
+    add_input_epoll_event(epoll_info, fd, input_context);    
   }
-  
-  fcntl(conn_sock, F_SETFL, O_NONBLOCK);
-
-  char* hbuf = (char*) CHECK_MEM(calloc(NI_MAXHOST, sizeof(char)));
-  char sbuf[NI_MAXSERV];
-
-  int r = getnameinfo((struct sockaddr*) &in_addr, size, hbuf,
-		      NI_MAXHOST * sizeof(char), sbuf,
-		      sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV);
-  CHECK(r == -1, "Failed to get host name");
-  
-  LOG_DEBUG("New request from %s:%s", hbuf, sbuf);
-  epoll_info->stats.active_connections++;
-  epoll_info->stats.total_requests_processed++;
-  return init_request_context(conn_sock, hbuf);
 }
 
 /**
@@ -172,9 +179,7 @@ static void read_client_request(EpollInfo *epoll_info,
 
     epoll_info->stats.active_connections--;
 
-    http_request_print(&request_context->http_request);
-    
-    size_t actor_id = 0; //(count++) % (size_t) server->actor_count;
+    size_t actor_id = (count++) % (size_t) server->actor_count;
 
     //todo fix this not to be blocking
     ActorInfo *actor_info = &server->app_actors[actor_id];
@@ -231,7 +236,6 @@ void input_event_loop(Server *server, int sock_fd) {
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, timeout);
     CHECK(ready_amount == -1, "Failed waiting on epoll");
     LOG_DEBUG("Input epoll events: %d", ready_amount);
-    epoll_info_print(epoll_info);
     
     for (int i = 0 ; i < ready_amount ; i++) {
       if (check_epoll_errors(epoll_info, &events[i]) != NONE) {
@@ -240,20 +244,7 @@ void input_event_loop(Server *server, int sock_fd) {
       }
 
       if (events[i].data.ptr == epoll_info) {
-	// handle setting up the new client connection and add it to
-	// the epoll event loop.
-	RequestContext *request_context = process_accept(epoll_info, sock_fd);
-	if (request_context == NULL) {
-	  // an error occurred while trying to create the connection, ignore
-	  // this can continue.
-	  continue;
-	}
-	request_set_start(&request_context->time_stats);
-	int fd = request_context->fd;
-	InputContext *input_context = init_client_input_context(request_context);
-	
-	add_input_epoll_event(epoll_info, fd, input_context);
-	continue;
+	process_accepts(epoll_info, sock_fd);
       }
       
       InputContext *input_context = (InputContext*) events[i].data.ptr;

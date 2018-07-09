@@ -51,10 +51,10 @@ void *run_actor(void *pthread_input) {
     
     
     HttpRequest http_request = request_context->http_request;
-    LOG_INFO("actor %d received request: %.*s %.*s",
+    /*LOG_INFO("actor %d received request: %.*s %.*s",
 	     actor_info->id,
 	     (int) http_request.method_len, http_request.method,
-	     (int) http_request.path_len, http_request.path);
+	     (int) http_request.path_len, http_request.path);*/
 
     HttpResponse http_response;
     init_http_response(&http_response, 200, http_request.path, http_request.path_len);
