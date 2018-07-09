@@ -33,8 +33,8 @@ static int create_socket() {
   CHECK(setsockopt(sock, SOL_SOCKET, SO_REUSEPORT | SO_REUSEADDR, &opt, sizeof(opt)) == -1,
 	"Failed to set options on SO_REUSEPORT | SO_REUSEADDR");
   // all writes should send packets right away
-  CHECK(setsockopt(sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt)) == -1,
-	"Failed to set options on TCP_NODELAY");
+  //CHECK(setsockopt(sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt)) == -1,
+  //	"Failed to set options on TCP_NODELAY");
 
   struct sockaddr_in address;
   memset(&address, 0, sizeof(address));
@@ -112,6 +112,7 @@ void create_output_actor(Server *server) {
 
 int main(int argc, char* argv[]) {
   LOG_INFO("starting up...");
+
   int sock_fd = create_socket();
   int cores = get_nprocs();
 

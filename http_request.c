@@ -1,8 +1,11 @@
+#define _GNU_SOURCE
+
 #include <stdlib.h>
 
 #include "http_request.h"
 #include "logging.h"
 #include "picohttpparser.h"
+
 
 enum ParseState http_request_parse(char* buffer, size_t buf_len, size_t prev_len,
 				   HttpRequest *request) {

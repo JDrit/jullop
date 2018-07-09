@@ -1,9 +1,10 @@
-#ifndef __dbg_h__
-#define __dbg_h__
+#ifndef __logging_h__
+#define __logging_h__
 
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <pthread.h>
 
 // Check if the given error condition is due to
 // blocking IO
@@ -11,23 +12,26 @@
 
 #define CLEAN_ERRNO() (errno == 0 ? "None" : strerror(errno))
 
-#define LOG(level, M, ...) {				       \
-  char __buffer[35];					       \
-  snprintf(__buffer, sizeof(__buffer), "[" level "]\t(%s:%d)", \
-	   __FILE__, __LINE__);				       \
-  fprintf(stderr, "%-35s" M "\n", __buffer, ##__VA_ARGS__);    \
+#define LOG(level, M, ...) {						\
+    char __thread_buffer[20];						\
+  pthread_t __thread_id = pthread_self();				\
+    pthread_getname_np(__thread_id, __thread_buffer, 20);			\
+  fprintf(stderr, "[" level "] [%s] (%s:%d) " M "\n",			\
+	  __thread_buffer, __FILE__, __LINE__, ##__VA_ARGS__);		\
   }
 
-#define ERR_LOG(level, M, ...) {				\
-  char __buffer[35];						\
-  snprintf(__buffer, sizeof(__buffer),				\
-	   "[" level "]\t(%s:%d)", __FILE__, __LINE__);		\
-  if (errno == 0) {						\
-    fprintf(stderr, "%-35s" M "\n", __buffer, ##__VA_ARGS__);	\
-  } else { 							\
-    fprintf(stderr, "%-35s(errno: %d %s) " M "\n", __buffer,	\
-	    errno, CLEAN_ERRNO(), ##__VA_ARGS__);		\
-  }								\
+#define ERR_LOG(level, M, ...) {					\
+  char __thread_buffer[20];					\
+  pthread_t __thread_id = pthread_self();				\
+  pthread_getname_np(__thread_id, __thread_buffer, 20);			\
+  if (errno == 0) {							\
+    fprintf(stderr, "[" level "] [%s] (%s:%d) " M "\n",			\
+	    __thread_buffer, __FILE__, __LINE__, ##__VA_ARGS__);	\
+  } else {								\
+    fprintf(stderr, "[" level "] [%s] (%s:%d) (errno: %d %s) " M "\n",	\
+	    __thread_buffer, __FILE__, __LINE__, errno, CLEAN_ERRNO(), \
+	    ##__VA_ARGS__);						\
+  }									\
   }
 
 #define LOG_INFO(M, ...) LOG("INFO ", M, ##__VA_ARGS__); 
