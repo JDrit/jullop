@@ -31,6 +31,9 @@ typedef struct RequestContext {
   /* the file descriptor to communicate to the client with */
   int fd;
 
+  /* the actor that processed the request */
+  int actor_id;
+
   /* input buffer from the client */
   char *input_buffer;
   /* the total size that can be read from the client */

@@ -55,6 +55,7 @@ RequestContext *init_request_context(int fd, char* host_name) {
     (RequestContext*) CHECK_MEM(calloc(1, sizeof(struct RequestContext)));
   context->remote_host = host_name;
   context->fd = fd;
+  context->actor_id = -1;
   context->input_buffer = (char*) CHECK_MEM(calloc(BUF_SIZE, sizeof(char)));
   context->input_len = BUF_SIZE;
   context->http_request.num_headers = NUM_HEADERS;
@@ -76,10 +77,12 @@ static void print_request_stats(RequestContext *context, enum RequestResult resu
   time_t client_write = request_get_client_write_time(&context->time_stats);
   time_t actor_time = request_get_actor_time(&context->time_stats);
   
-  LOG_INFO("Request Stats : result=%s fd=%d remote_host=%s bytes_read=%zu bytes_written=%zu",
+  LOG_INFO("Request Stats : result=%s fd=%d remote_host=%s actor=%d "
+	   "bytes_read=%zu bytes_written=%zu",
 	   request_result_name(result),
 	   context->fd,
 	   context->remote_host,
+	   context->actor_id,
 	   context->input_offset,
 	   context->output_offset);
   LOG_INFO("Time Stats    : total_micros=%ld client_read_micros=%ld "
@@ -91,7 +94,7 @@ static void print_request_stats(RequestContext *context, enum RequestResult resu
 }
 
 void request_finish_destroy(RequestContext *context, enum RequestResult result) {
-  //print_request_stats(context, result);
+  print_request_stats(context, result);
 
   // close the connection to the client
   close(context->fd); 

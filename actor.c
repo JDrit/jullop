@@ -48,7 +48,7 @@ void *run_actor(void *pthread_input) {
 
   while (1) {
     RequestContext *request_context = read_request_context(actor_info->actor_requests_fd);
-    
+    request_context->actor_id = actor_info->id;
     
     HttpRequest http_request = request_context->http_request;
     /*LOG_INFO("actor %d received request: %.*s %.*s",
