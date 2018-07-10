@@ -40,7 +40,6 @@ enum EpollError check_epoll_errors(EpollInfo *epoll, struct epoll_event *event) 
   if (event->events & EPOLLERR) {
     LOG_WARN("Epoll event error on %s due to read side of the socket closing",
 	     epoll->name);
-    CHECK(1, "fail");
     return EPOLL_ERROR;
   } else if (event->events & EPOLLHUP) {
     LOG_WARN("Epoll event error on %s due to peer closing connection",

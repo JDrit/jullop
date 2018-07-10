@@ -20,7 +20,7 @@
 #include "request_context.h"
 #include "time_stats.h"
 
-#define MAX_EVENTS 10
+#define MAX_EVENTS 250
 
 typedef struct ActorContext {
   int fd;
@@ -232,29 +232,38 @@ void input_event_loop(Server *server, int sock_fd) {
   
   while (1) {
     struct epoll_event events[MAX_EVENTS];
-    int timeout = 5 * 1000; // 10 seconds
-    int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, timeout);
+    int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
     CHECK(ready_amount == -1, "Failed waiting on epoll");
-    LOG_DEBUG("Input epoll events: %d", ready_amount);
     
     for (int i = 0 ; i < ready_amount ; i++) {
-      if (check_epoll_errors(epoll_info, &events[i]) != NONE) {
-	// handle client request closes
-	continue;
-      }
-
-      if (events[i].data.ptr == epoll_info) {
-	process_accepts(epoll_info, sock_fd);
-      }
       
-      InputContext *input_context = (InputContext*) events[i].data.ptr;
-
-      if (events[i].events & EPOLLIN & input_context->type == CLIENT) {
-	read_client_request(epoll_info, server, input_context);
-      }
-
-      if (events[i].events & EPOLLOUT & input_context->type == ACTOR) {
-	//write_actor_message(epoll_info, input_context);
+      if (events[i].data.ptr == epoll_info) {
+	if (check_epoll_errors(epoll_info, &events[i]) == NONE) {
+	  process_accepts(epoll_info, sock_fd);
+	} else {
+	  // error on accepting new connections
+	  FAIL("Epoll error while accepting new connections");
+	}
+      } else {
+	InputContext *input_context = (InputContext*) events[i].data.ptr;
+	if (input_context->type == CLIENT) {
+	  if (check_epoll_errors(epoll_info, &events[i]) == NONE) {
+	    read_client_request(epoll_info, server, input_context);
+	  } else {
+	    /* The epoll event controlling the client connection ran 
+             * into an issue. Disconnect and end the connection. */
+	    int fd = input_context->payload.request_context->fd;
+	    int error = 0;
+	    socklen_t errlen = sizeof(error);
+	    getsockopt(fd, SOL_SOCKET, SO_ERROR, (void *)&error, &errlen);
+	    LOG_WARN("Closing connection early due to %s", strerror(error));	    
+	    close_client_connection(epoll_info, input_context, REQUEST_EPOLL_ERROR);
+	  }
+	} else if (input_context->type == ACTOR) {
+	  // todo: handle actor writes
+	} else {
+	  FAIL("Unknown input context type");
+	}
       }
     }
   }  

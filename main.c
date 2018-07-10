@@ -129,6 +129,8 @@ int main(int argc, char* argv[]) {
     create_actor(&server, i, &server.app_actors[i]);
   }
 
+  LOG_FATAL("started");
+  
   create_output_actor(&server);
 
   create_input_actor(&server);

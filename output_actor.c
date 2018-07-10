@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include <stdlib.h>
+#include <sys/socket.h>
 
 #include "epoll_info.h"
 #include "logging.h"
@@ -9,7 +10,7 @@
 #include "server.h"
 #include "time_stats.h"
 
-#define MAX_EVENTS 10
+#define MAX_EVENTS 250
 
 typedef struct ActorContext {
   int fd;
@@ -156,25 +157,32 @@ void *output_event_loop(void *pthread_input) {
 
   while (1) {
     struct epoll_event events[MAX_EVENTS];
-    int timeout = 5 * 1000; // 10 seconds
-    int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, timeout);
+    int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
     CHECK(ready_amount == -1, "Error while waiting for epoll events");
-    LOG_DEBUG("Output epoll events: %d", ready_amount);
 
     for (int i = 0 ; i < ready_amount ; i++) {
-      if (check_epoll_errors(epoll_info, &events[i]) != NONE) {
-	// handle client requests closes
-	continue;
-      }
       OutputContext *output_context = (OutputContext*) events[i].data.ptr;
 
-      if (events[i].events & EPOLLIN && output_context->type == ACTOR) {
-	read_actor_message(epoll_info, output_context);	
-      }
-
-      if (events[i].events & EPOLLOUT && output_context->type == CLIENT) {
-	write_client_response(epoll_info, output_context);
-      }
+      if (output_context->type == ACTOR) {
+	if (check_epoll_errors(epoll_info, &events[i]) == NONE) {
+	  read_actor_message(epoll_info, output_context);
+	} else {
+	  FAIL("Epoll error reading from the actor");
+	}
+      } else if (output_context->type == CLIENT) {
+	if (check_epoll_errors(epoll_info, &events[i]) == NONE) {
+	  write_client_response(epoll_info, output_context);
+	} else {
+	  /* The epoll event controlling the client connection ran 
+	   * into an issue. Disconnect and end the connection. */
+	  int fd = output_context->payload.request_context->fd;
+	  int error = 0;
+	  socklen_t errlen = sizeof(error);
+	  getsockopt(fd, SOL_SOCKET, SO_ERROR, (void *)&error, &errlen);
+	  LOG_WARN("Closing connection early due to %s", strerror(error));	    
+	  close_client_connection(epoll_info, output_context, REQUEST_EPOLL_ERROR);
+	}
+      }      
     }
   }
 
