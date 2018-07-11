@@ -33,8 +33,8 @@ static int create_socket() {
   CHECK(setsockopt(sock, SOL_SOCKET, SO_REUSEPORT | SO_REUSEADDR, &opt, sizeof(opt)) == -1,
 	"Failed to set options on SO_REUSEPORT | SO_REUSEADDR");
   // all writes should send packets right away
-  //CHECK(setsockopt(sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt)) == -1,
-  //	"Failed to set options on TCP_NODELAY");
+  CHECK(setsockopt(sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt)) == -1,
+  	"Failed to set options on TCP_NODELAY");
 
   struct sockaddr_in address;
   memset(&address, 0, sizeof(address));
@@ -95,7 +95,7 @@ void create_actor(Server *server, int id, ActorInfo *actor) {
   CHECK(r != 0, "Failed to set cpu infinity to %d", id);
 }
 
-void create_output_actor(Server *server) {
+pthread_t create_output_actor(Server *server) {
   pthread_t thread;
   int r = pthread_create(&thread, NULL, output_event_loop, server);
   CHECK(r != 0, "Failed to create output actor thread");
@@ -105,35 +105,48 @@ void create_output_actor(Server *server) {
 
   const char *name = "output-actor";
   r = pthread_setname_np(thread, name);
-  CHECK(r != 0, "Failed to set output actor name");   
+  CHECK(r != 0, "Failed to set output actor name");
+
+  return thread;
 }
 
-void create_input_actor(Server *server) {
-  //todo make this a separate thread later
-  pthread_t thread_id = pthread_self();
+pthread_t create_input_actor(Server *server) {
+  pthread_t thread;
+  int r = pthread_create(&thread, NULL, input_event_loop, server);
+  CHECK(r != 0, "Failed to create input actor thread");
+
+  // input actor thread is not detached so that we can call
+  // pthread_join on it and block the main thread.
+  
   const char *name = "input-actor";
-  int r = pthread_setname_np(thread_id, name);
+  r = pthread_setname_np(thread, name);
   CHECK(r != 0, "Failed to set input actor name");
+
+  return thread;
 }
 
 int main(int argc, char* argv[]) {
-  LOG_INFO("starting up...");
+  pid_t pid = getpid();
+  LOG_INFO("starting up pid=%d port=%d", pid, PORT);
 
   int sock_fd = create_socket();
   int cores = get_nprocs();
 
   struct Server server;
+  server.sock_fd = sock_fd;
   server.actor_count = cores;
   server.app_actors = (ActorInfo*) CHECK_MEM(calloc((size_t) cores, sizeof(ActorInfo)));
   for (int i = 0 ; i < cores ; i++) {
     create_actor(&server, i, &server.app_actors[i]);
   }
 
-  LOG_FATAL("started");
-  
   create_output_actor(&server);
 
-  create_input_actor(&server);
-  
-  input_event_loop(&server, sock_fd);
+  pthread_t input_thread = create_input_actor(&server);
+
+  void *ptr;
+  int r = pthread_join(input_thread, (void**) &ptr);
+  CHECK(r != 0, "Failed to join on thread");
+
+  LOG_INFO("Exiting server");
 }

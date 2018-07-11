@@ -188,7 +188,8 @@ static void read_client_request(EpollInfo *epoll_info,
     Message message;
     message_init(&message, request_context);
 
-    message_write_sync(fd, &message);
+    enum WriteState write_state = message_write_async(fd, &message);
+    CHECK(write_state != WRITE_FINISH, "Failed to write message");
 
     // clean up the context used for reading client input.
     free(input_context);
@@ -213,7 +214,9 @@ static void read_client_request(EpollInfo *epoll_info,
 /**
  * Runs the event loop and listens for connections on the given socket.
  */
-void input_event_loop(Server *server, int sock_fd) {
+void *input_event_loop(void *pthread_input) {
+  Server *server = (Server*) pthread_input;
+  int sock_fd = server->sock_fd;
   const char *name = "input actor";
   EpollInfo *epoll_info = init_epoll_info(name);
   set_accept_epoll_event(epoll_info, sock_fd);
@@ -229,11 +232,19 @@ void input_event_loop(Server *server, int sock_fd) {
     add_output_epoll_event(epoll_info, fd, input_context);
   }
   */
+
+  size_t max_active = 0;
   
   while (1) {
     struct epoll_event events[MAX_EVENTS];
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
     CHECK(ready_amount == -1, "Failed waiting on epoll");
+
+    LOG_DEBUG("Input actor received %d events", ready_amount);
+
+    if (epoll_info->stats.active_connections > max_active) {
+      max_active = epoll_info->stats.active_connections;
+    }
     
     for (int i = 0 ; i < ready_amount ; i++) {
       
@@ -266,6 +277,7 @@ void input_event_loop(Server *server, int sock_fd) {
 	}
       }
     }
-  }  
+  }
+  return NULL;
 }
 

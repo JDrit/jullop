@@ -28,7 +28,6 @@ void *message_get_payload(Message *message) {
 
 void message_write_sync(int fd, Message *message) {
   do {
-    LOG_DEBUG("Starting blocking write on fd=%d", fd);
     void *start_addr = message->buffer + message->offset;
     size_t num_to_write = sizeof(size_t) - message->offset;
     ssize_t num_written = write(fd, start_addr, num_to_write);
@@ -38,8 +37,7 @@ void message_write_sync(int fd, Message *message) {
     } else {
       message->offset += (size_t) num_written;
     }
-  } while (message->offset < sizeof(size_t));
-  
+  } while (message->offset < sizeof(size_t));  
   LOG_DEBUG("Finished blocking write on fd=%d", fd);
 }
 
@@ -51,7 +49,7 @@ void message_read_sync(int fd, Message *message) {
     ssize_t num_read = read(fd, start_addr, num_to_read);
     LOG_DEBUG("read %zd bytes on fd %d", num_read, fd);
     
-    if (num_read == -1) {
+    if (num_read <= 0) {
       LOG_WARN("Error during blocking read");
     } else {
       message->offset += (size_t) num_read;
@@ -75,7 +73,7 @@ enum WriteState write_async(int fd, void *buffer, size_t buffer_len,
     size_t num_to_write = buffer_len - *offset;
     ssize_t num_written = write(fd, start_addr, num_to_write);
 
-    if (num_written == -1) {
+    if (num_written <= 0) {
       if (ERROR_BLOCK) {
 	errno = 0;
 	return WRITE_BUSY;
@@ -95,8 +93,9 @@ enum ReadState read_async(int fd, void *buffer, size_t buffer_len,
     void *start_addr = buffer + *offset;
     size_t num_to_read = buffer_len - *offset;
     ssize_t num_read = read(fd, start_addr, num_to_read);
+    LOG_INFO("read response %ld", num_read);
 
-    if (num_read == -1) {
+    if (num_read <= 0) {
       if (ERROR_BLOCK) {
 	errno = 0;
 	return READ_BUSY;

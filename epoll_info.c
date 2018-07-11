@@ -17,7 +17,7 @@ EpollInfo *init_epoll_info(const char *name) {
 }
 
 void epoll_info_print(EpollInfo *epoll) {
-  LOG_INFO("name='%s' active=%ld total=%ld bytes_read=%ld bytes_written=%ld",
+  LOG_INFO("EPOLL: name='%s' active=%ld total=%ld bytes_read=%ld bytes_written=%ld",
 	   epoll->name,
 	   epoll->stats.active_connections,
 	   epoll->stats.total_requests_processed,

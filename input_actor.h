@@ -3,6 +3,6 @@
 
 #include "server.h"
 
-void input_event_loop(Server *server, int sock_fd);
+void *input_event_loop(void *pthread_input);
 
 #endif

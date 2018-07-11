@@ -23,6 +23,8 @@ typedef struct ActorInfo {
 } ActorInfo;
 
 typedef struct Server {
+  /* the socket to accept input requests on */
+  int sock_fd;
   /* the amount of actor running on the server */
   int actor_count;
   /* the list of the actors running */

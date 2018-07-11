@@ -62,9 +62,8 @@ void *run_actor(void *pthread_input) {
     request_context->output_buffer = http_response.output;
     request_context->output_len = http_response.output_len;
 
-    LOG_DEBUG("Actor %d starting to write response", actor_info->id);
+    // forwards the response to the output actor
     write_request_context(actor_info->actor_responses_fd, request_context);
-    LOG_DEBUG("Actor %d finished writing response", actor_info->id);
   }
   
   return NULL;
