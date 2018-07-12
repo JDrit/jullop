@@ -73,14 +73,16 @@ enum WriteState write_async(int fd, void *buffer, size_t buffer_len,
     size_t num_to_write = buffer_len - *offset;
     ssize_t num_written = write(fd, start_addr, num_to_write);
 
-    if (num_written <= 0) {
+    switch (num_written) {
+    case -1:
       if (ERROR_BLOCK) {
-	errno = 0;
 	return WRITE_BUSY;
       } else {
 	return WRITE_ERROR;
       }
-    } else {
+    case 0:
+      return WRITE_ERROR;
+    default:
       *offset += (size_t) num_written;
     }
   } while (*offset < buffer_len);
@@ -93,17 +95,19 @@ enum ReadState read_async(int fd, void *buffer, size_t buffer_len,
     void *start_addr = buffer + *offset;
     size_t num_to_read = buffer_len - *offset;
     ssize_t num_read = read(fd, start_addr, num_to_read);
-    LOG_INFO("read response %ld", num_read);
 
-    if (num_read <= 0) {
+    switch (num_read) {
+    case -1:
       if (ERROR_BLOCK) {
-	errno = 0;
 	return READ_BUSY;
       } else {
 	return READ_ERROR;
       }
-    } else {
+    case 0:
+      return READ_ERROR;
+    default:
       *offset += (size_t) num_read;
+      break;
     }
   } while (*offset < sizeof(size_t));
   return READ_FINISH;

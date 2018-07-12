@@ -233,18 +233,10 @@ void *input_event_loop(void *pthread_input) {
   }
   */
 
-  size_t max_active = 0;
-  
   while (1) {
     struct epoll_event events[MAX_EVENTS];
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
     CHECK(ready_amount == -1, "Failed waiting on epoll");
-
-    LOG_DEBUG("Input actor received %d events", ready_amount);
-
-    if (epoll_info->stats.active_connections > max_active) {
-      max_active = epoll_info->stats.active_connections;
-    }
     
     for (int i = 0 ; i < ready_amount ; i++) {
       
