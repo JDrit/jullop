@@ -96,7 +96,7 @@ static void print_request_stats(RequestContext *context, enum RequestResult resu
 void request_finish_destroy(RequestContext *context, enum RequestResult result) {
 #ifdef DEBUG
   print_request_stats(context, result);
-  #endif
+#endif
 
   // close the connection to the client
   close(context->fd); 

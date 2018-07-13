@@ -31,7 +31,7 @@ void queue_push(Queue *queue, void *ptr);
 
 enum QueueResult queue_trypush(Queue *queue, void *ptr);
 
-void *queue_pop(Queue *queue);
+void queue_pop(Queue *queue, void **data);
 
 enum QueueResult queue_trypop(Queue *queue, void **ptr);
 
