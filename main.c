@@ -18,6 +18,7 @@
 #include "input_actor.h"
 #include "logging.h"
 #include "output_actor.h"
+#include "queue.h"
 #include "request_context.h"
 #include "server.h"
 
@@ -54,7 +55,7 @@ static int create_socket() {
 
 void create_actor(Server *server, int id, ActorInfo *actor) {
   actor->id = id;
-    
+
   int fds[2];
   int r = socketpair(AF_LOCAL, SOCK_SEQPACKET, 0, fds);
   CHECK(r != 0, "Failed to create actor socket pair");

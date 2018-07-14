@@ -158,7 +158,10 @@ void *output_event_loop(void *pthread_input) {
   while (1) {
     struct epoll_event events[MAX_EVENTS];
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
-    CHECK(ready_amount == -1, "Error while waiting for epoll events");
+    if (ready_amount == -1) {
+      LOG_WARN("Failed to wait on epoll");
+      continue;
+    }
 
     for (int i = 0 ; i < ready_amount ; i++) {
       OutputContext *output_context = (OutputContext*) events[i].data.ptr;

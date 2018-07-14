@@ -1,6 +1,8 @@
 #ifndef __server_h__
 #define __server_h__
 
+#include "queue.h"
+
 typedef struct ActorInfo {
   /* unique identifier for the given actor. */
   int id;

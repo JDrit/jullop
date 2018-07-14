@@ -51,6 +51,7 @@ void *run_actor(void *pthread_input) {
     request_context->actor_id = actor_info->id;
     
     HttpRequest http_request = request_context->http_request;
+
     /*LOG_INFO("actor %d received request: %.*s %.*s",
 	     actor_info->id,
 	     (int) http_request.method_len, http_request.method,

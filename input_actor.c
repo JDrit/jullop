@@ -236,7 +236,11 @@ void *input_event_loop(void *pthread_input) {
   while (1) {
     struct epoll_event events[MAX_EVENTS];
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
-    CHECK(ready_amount == -1, "Failed waiting on epoll");
+    if (ready_amount == -1) {
+      LOG_WARN("Failed to wait on epoll");
+      continue;
+    }
+
     
     for (int i = 0 ; i < ready_amount ; i++) {
       
