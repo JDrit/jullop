@@ -38,12 +38,6 @@ EpollInfo *init_epoll_info(const char *name);
 void epoll_info_print(EpollInfo *epoll);
 
 /**
- * Registers the accept file descriptor to start accepting new requests.
- * The given EpollInfo is registered as the event context.
- */
-void set_accept_epoll_event(EpollInfo *epoll, int fd);
-
-/**
  * Checks to see if the given epoll event contains an error.
  */
 enum EpollError check_epoll_errors(EpollInfo *epoll, struct epoll_event *event);

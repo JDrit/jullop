@@ -72,7 +72,8 @@ enum WriteState write_async(int fd, void *buffer, size_t buffer_len,
     void *start_addr = buffer + *offset;
     size_t num_to_write = buffer_len - *offset;
     ssize_t num_written = write(fd, start_addr, num_to_write);
-
+    LOG_DEBUG("Wrote %ld bytes on fd=%d", num_written, fd);
+    
     switch (num_written) {
     case -1:
       if (ERROR_BLOCK) {
@@ -95,6 +96,7 @@ enum ReadState read_async(int fd, void *buffer, size_t buffer_len,
     void *start_addr = buffer + *offset;
     size_t num_to_read = buffer_len - *offset;
     ssize_t num_read = read(fd, start_addr, num_to_read);
+    LOG_DEBUG("Read %ld bytes on fd=%d", num_read, fd);
 
     switch (num_read) {
     case -1:

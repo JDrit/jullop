@@ -24,32 +24,44 @@
 
 typedef struct ActorContext {
   int fd;
-  Message message;
 } ActorContext;
 
-enum Type {
-  CLIENT,
-  ACTOR,
-};
+typedef struct AcceptContext {
+  int fd;
+} AcceptContext;
 
-union Payload {
-  RequestContext *request_context;
-  ActorContext *actor_context;
-};
+typedef struct IoContext {
 
-typedef struct InputContext {
-  enum Type type;
-  union Payload payload;
-} InputContext;
+  enum type {
+    CLIENT,
+    ACTOR,
+    ACCEPT,
+  } type;
+
+  union context {
+    RequestContext *request_context;
+    ActorContext *actor_context;
+    AcceptContext *accept_context;
+  } context;
+  
+} IoContext;
+
+static inline const char* context_type_name(IoContext *io_context) {
+  switch (io_context->type) {
+  case CLIENT: return "CLIENT";
+  case ACTOR: return "ACTOR";
+  case ACCEPT: return "ACCEPT";
+  default: return "UNKNOWN";
+  }
+}
 
 /**
  * Cleans up client requests.
  */
 static void close_client_connection(EpollInfo *epoll_info,
-				    InputContext *input_context,
+				    IoContext *io_context,
 				    enum RequestResult result) {
-  
-  RequestContext *request_context = input_context->payload.request_context;
+  RequestContext *request_context = io_context->context.request_context;
   
   epoll_info->stats.active_connections--;
   epoll_info->stats.bytes_read += context_bytes_read(request_context);
@@ -60,30 +72,53 @@ static void close_client_connection(EpollInfo *epoll_info,
 
   // finishes up the request
   request_finish_destroy(request_context, result);
-  free(input_context);
+  free(io_context);
 }
 
-static InputContext *init_actor_input_context(int fd) {
-  InputContext *input_context = (InputContext*) CHECK_MEM(calloc(1, sizeof(InputContext)));
+/**
+ * The epoll event controlling the client connection can into an issue. 
+ * Disconnect and end the connection. 
+ */
+static void handle_epoll_client_error(EpollInfo *epoll_info,
+				      IoContext *io_context) {
+  int fd = io_context->context.request_context->fd;
+  int error = 0;
+  socklen_t errlen = sizeof(error);
+  getsockopt(fd, SOL_SOCKET, SO_ERROR, (void *)&error, &errlen);
+  LOG_WARN("Closing connection early due to %s", strerror(error));	    
+  close_client_connection(epoll_info, io_context, REQUEST_EPOLL_ERROR);
+}
+
+static IoContext *init_actor_io_context(int fd) {
+  IoContext *io_context = (IoContext*) CHECK_MEM(calloc(1, sizeof(IoContext)));
   ActorContext *actor_context = (ActorContext*) CHECK_MEM(calloc(1, sizeof(ActorContext)));
   actor_context->fd = fd;
-  input_context->type = ACTOR;
-  input_context->payload.actor_context = actor_context;
-  return input_context;
+  io_context->type = ACTOR;
+  io_context->context.actor_context = actor_context;
+  return io_context;
 }
 
-static InputContext *init_client_input_context(RequestContext *request_context) {
-  InputContext *input_context = (InputContext*) CHECK_MEM(calloc(1, sizeof(InputContext)));
-  input_context->type = CLIENT;
-  input_context->payload.request_context = request_context;
-  return input_context;
+static IoContext *init_client_io_context(RequestContext *request_context) {
+  IoContext *io_context = (IoContext*) CHECK_MEM(calloc(1, sizeof(IoContext)));
+  io_context->type = CLIENT;
+  io_context->context.request_context = request_context;
+  return io_context;
+}
+
+static IoContext *init_accept_io_context(int fd) {
+  IoContext *io_context = (IoContext*) CHECK_MEM(calloc(1, sizeof(IoContext)));
+  AcceptContext *accept_context = (AcceptContext*) CHECK_MEM(calloc(1, sizeof(AcceptContext)));
+  accept_context->fd = fd;
+  io_context->type = ACCEPT;
+  io_context->context.accept_context = accept_context;
+  return io_context;
 }
 
 /**
  * Accepts as many as possible waiting connections and registers them all in the 
  * input event loop. This can register multiple connections in one go.
  */
-void process_accepts(EpollInfo *epoll_info, int accept_fd) {
+void handle_accept_op(EpollInfo *epoll_info, int accept_fd) {
 
   while (1) {
     struct sockaddr_in in_addr;
@@ -113,10 +148,9 @@ void process_accepts(EpollInfo *epoll_info, int accept_fd) {
 
     RequestContext *request_context = init_request_context(conn_sock, hbuf);
     request_set_start(&request_context->time_stats);
-
-    int fd = request_context->fd;
-    InputContext *input_context = init_client_input_context(request_context);
-    add_input_epoll_event(epoll_info, fd, input_context);    
+    
+    IoContext *io_context = init_client_io_context(request_context);
+    add_input_epoll_event(epoll_info, request_context->fd, io_context);
   }
 }
 
@@ -149,8 +183,12 @@ static enum ReadState try_parse_http_request(RequestContext *request_context) {
       return READ_ERROR;
     case PARSE_INCOMPLETE:
       return READ_BUSY;
+    default:
+      return READ_ERROR;
     }
   }
+  default:
+    return READ_ERROR;
   }
 }
 
@@ -162,8 +200,8 @@ static size_t count = 0;
  */
 static void read_client_request(EpollInfo *epoll_info,
 				Server *server,
-				InputContext *input_context) {
-  RequestContext *request_context = input_context->payload.request_context;
+				IoContext *io_context) {
+  RequestContext *request_context = io_context->context.request_context;
 
   request_set_client_read_start(&request_context->time_stats);
   enum ReadState state = try_parse_http_request(request_context);  
@@ -176,6 +214,10 @@ static void read_client_request(EpollInfo *epoll_info,
      * before we send it off or a race condition could cause it to be
      * closed before the input actor finishes deleting the event. */
     delete_epoll_event(epoll_info, request_context->fd);
+
+    /* the next stage of the pipline is to forward the request to the
+     * actor. */
+    request_context->state = ACTOR_WRITE;
 
     epoll_info->stats.active_connections--;
 
@@ -191,18 +233,17 @@ static void read_client_request(EpollInfo *epoll_info,
     enum WriteState write_state = message_write_async(fd, &message);
     CHECK(write_state != WRITE_FINISH, "Failed to write message");
 
-    // clean up the context used for reading client input.
-    free(input_context);
-    
+    free(io_context);
+
     return;
   }
   case READ_ERROR:
     request_context->state = FINISH;
-    close_client_connection(epoll_info, input_context, REQUEST_READ_ERROR);
+    close_client_connection(epoll_info, io_context, REQUEST_READ_ERROR);
     return;
   case CLIENT_DISCONNECT:
     request_context->state = FINISH;
-    close_client_connection(epoll_info, input_context, REQUEST_CLIENT_ERROR);
+    close_client_connection(epoll_info, io_context, REQUEST_CLIENT_ERROR);
     return;
   case READ_BUSY:
     // there is still more to read off of the client request, for now go
@@ -211,66 +252,155 @@ static void read_client_request(EpollInfo *epoll_info,
   }
 }
 
+static void write_client_response(EpollInfo *epoll_info, IoContext *io_context) {
+  RequestContext *request_context = io_context->context.request_context;
+  
+  request_set_client_write_start(&request_context->time_stats);
+  enum WriteState state = write_async(request_context->fd,
+				      request_context->output_buffer,
+				      request_context->output_len,
+				      &request_context->output_offset);
+  request_set_client_write_end(&request_context->time_stats);
+  
+  switch (state) {
+  case WRITE_BUSY:
+    LOG_DEBUG("client write socket busy");
+    break;
+  case WRITE_ERROR:
+    LOG_WARN("Error while writing response to client");
+    close_client_connection(epoll_info, io_context, REQUEST_WRITE_ERROR);
+    break;
+  case WRITE_FINISH:
+    request_context->state = FINISH;
+    close_client_connection(epoll_info, io_context, REQUEST_SUCCESS);
+    break;
+  }
+}
+
+void handle_client_op(EpollInfo *epoll_info, Server *server, IoContext *io_context) {
+  RequestContext *request_context = io_context->context.request_context;
+  
+  switch (request_context->state) {
+  case CLIENT_READ:
+    read_client_request(epoll_info, server, io_context);
+    break;
+  case CLIENT_WRITE:
+    write_client_response(epoll_info, io_context);
+    break;
+  default:
+    LOG_WARN("Unknown request state: %d", request_context->state);
+    break;
+  }
+}
+
+void handle_actor_op(EpollInfo *epoll_info, Server *server, IoContext *io_context) {
+  ActorContext *actor_context = io_context->context.actor_context;
+
+  Message message;
+  message_reset(&message);
+  enum ReadState state = message_read_async(actor_context->fd, &message);
+
+  switch (state) {
+  case READ_BUSY:
+    LOG_DEBUG("Actor socket busy");
+    break;
+  case CLIENT_DISCONNECT:
+  case READ_ERROR:
+    LOG_WARN("Error while reading response from actor");
+    break;
+  case READ_FINISH: {
+    
+    /* Once the full message has been read from the application-level actor,
+     * register the client's file descriptor to start writing the response out */    
+    RequestContext *request_context = (RequestContext*) message_get_payload(&message);
+
+    /* The request context was originally created by the input actor thread and
+     * then modified by the application-level actor so we need to make sure that
+     * the cache lines have been flused. */
+    __sync_synchronize();
+
+    /* All that is left is to send the response back to the client. */
+    request_context->state = CLIENT_WRITE;
+    
+    /* Adds an epoll event responsible for writing the fully constructed HTTP 
+     * response back to the client. */
+    IoContext *client_output = init_client_io_context(request_context);
+    add_output_epoll_event(epoll_info, request_context->fd, client_output);
+  }
+  }
+
+}
+
 /**
  * Runs the event loop and listens for connections on the given socket.
  */
 void *input_event_loop(void *pthread_input) {
   Server *server = (Server*) pthread_input;
-  int sock_fd = server->sock_fd;
-  const char *name = "input actor";
-  EpollInfo *epoll_info = init_epoll_info(name);
-  set_accept_epoll_event(epoll_info, sock_fd);
 
-  /*
-   * Registers each application-level actor input socket so that the input
-   * actor can start to send requests to it.
-   */
-  /*
+  // make sure all application threads have started
+  pthread_barrier_wait(&server->startup);
+
+  LOG_INFO("Starting IO thread");
+  
+  
+  const char *name = "IO-Thread";
+  EpollInfo *epoll_info = init_epoll_info(name);
+
+  /* Adds the epoll event for listening for new connections */
+  IoContext *accept_context = init_accept_io_context(server->sock_fd);  
+  add_input_epoll_event(epoll_info, server->sock_fd, accept_context);
+
+  /* Registers the output of the application-level actors so that responses
+   * will be picked up and send back to the clients. */
   for (int i = 0 ; i < server->actor_count ; i++) {
-    int fd = server->app_actors[i].input_actor_fd;
-    InputContext *input_context = init_actor_input_context(fd);
-    add_output_epoll_event(epoll_info, fd, input_context);
+    int fd = server->app_actors[i].output_actor_fd;
+    IoContext *io_context = init_actor_io_context(fd);
+    add_input_epoll_event(epoll_info, fd, io_context);
   }
-  */
 
   while (1) {
     struct epoll_event events[MAX_EVENTS];
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
+    LOG_DEBUG("Received %d epoll events", ready_amount);
     if (ready_amount == -1) {
       LOG_WARN("Failed to wait on epoll");
       continue;
     }
-
     
     for (int i = 0 ; i < ready_amount ; i++) {
+      IoContext *io_context = (IoContext*) events[i].data.ptr;
+      LOG_DEBUG("Epoll event type: %s", context_type_name(io_context));
       
-      if (events[i].data.ptr == epoll_info) {
-	if (check_epoll_errors(epoll_info, &events[i]) == NONE) {
-	  process_accepts(epoll_info, sock_fd);
-	} else {
-	  // error on accepting new connections
-	  FAIL("Epoll error while accepting new connections");
+      //
+      // handle epoll errors. 
+      //
+      if (check_epoll_errors(epoll_info, &events[i]) != NONE) {
+	switch (io_context->type) {
+	case ACTOR:
+	  LOG_WARN("Epoll error for actor socket");
+	  break;
+	case ACCEPT:
+	  LOG_WARN("Epoll error for accept socket");
+	  break;
+	case CLIENT:
+	  handle_epoll_client_error(epoll_info, io_context);
+	  break;
 	}
-      } else {
-	InputContext *input_context = (InputContext*) events[i].data.ptr;
-	if (input_context->type == CLIENT) {
-	  if (check_epoll_errors(epoll_info, &events[i]) == NONE) {
-	    read_client_request(epoll_info, server, input_context);
-	  } else {
-	    /* The epoll event controlling the client connection ran 
-             * into an issue. Disconnect and end the connection. */
-	    int fd = input_context->payload.request_context->fd;
-	    int error = 0;
-	    socklen_t errlen = sizeof(error);
-	    getsockopt(fd, SOL_SOCKET, SO_ERROR, (void *)&error, &errlen);
-	    LOG_WARN("Closing connection early due to %s", strerror(error));	    
-	    close_client_connection(epoll_info, input_context, REQUEST_EPOLL_ERROR);
-	  }
-	} else if (input_context->type == ACTOR) {
-	  // todo: handle actor writes
-	} else {
-	  FAIL("Unknown input context type");
-	}
+	continue;
+      }
+
+      // -----------------------------------------------------------------------
+
+      switch (io_context->type) {
+      case ACTOR:
+	handle_actor_op(epoll_info, server, io_context);
+	break;
+      case ACCEPT:
+	handle_accept_op(epoll_info, io_context->context.accept_context->fd);
+	break;
+      case CLIENT:
+	handle_client_op(epoll_info, server, io_context);
+	break;
       }
     }
   }

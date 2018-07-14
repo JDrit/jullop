@@ -55,6 +55,7 @@ static int create_socket() {
 
 void create_actor(Server *server, int id, ActorInfo *actor) {
   actor->id = id;
+  actor->startup = &server->startup;
 
   int fds[2];
   int r = socketpair(AF_LOCAL, SOCK_SEQPACKET, 0, fds);
@@ -85,7 +86,7 @@ void create_actor(Server *server, int id, ActorInfo *actor) {
 
   size_t max_name_size = 16;
   char *name = (char*) CHECK_MEM(calloc(1, sizeof(max_name_size)));
-  snprintf(name, max_name_size, "actor-%d", actor->id);
+  snprintf(name, max_name_size, "app-%d", actor->id);
   r = pthread_setname_np(thread_id, name);
   CHECK(r != 0, "Failed to set actor %d name", actor->id);
   
@@ -96,21 +97,6 @@ void create_actor(Server *server, int id, ActorInfo *actor) {
   CHECK(r != 0, "Failed to set cpu infinity to %d", id);
 }
 
-pthread_t create_output_actor(Server *server) {
-  pthread_t thread;
-  int r = pthread_create(&thread, NULL, output_event_loop, server);
-  CHECK(r != 0, "Failed to create output actor thread");
-
-  r = pthread_detach(thread);
-  CHECK(r != 0, "Failed to detach pthread");
-
-  const char *name = "output-actor";
-  r = pthread_setname_np(thread, name);
-  CHECK(r != 0, "Failed to set output actor name");
-
-  return thread;
-}
-
 pthread_t create_input_actor(Server *server) {
   pthread_t thread;
   int r = pthread_create(&thread, NULL, input_event_loop, server);
@@ -119,7 +105,7 @@ pthread_t create_input_actor(Server *server) {
   // input actor thread is not detached so that we can call
   // pthread_join on it and block the main thread.
   
-  const char *name = "input-actor";
+  const char *name = "io-thread";
   r = pthread_setname_np(thread, name);
   CHECK(r != 0, "Failed to set input actor name");
 
@@ -137,16 +123,18 @@ int main(int argc, char* argv[]) {
   server.sock_fd = sock_fd;
   server.actor_count = cores;
   server.app_actors = (ActorInfo*) CHECK_MEM(calloc((size_t) cores, sizeof(ActorInfo)));
+
+  int r = pthread_barrier_init(&server.startup, NULL, (uint) server.actor_count + 1);
+  CHECK(r != 0, "Failed to construct pthread barrier");
+
   for (int i = 0 ; i < cores ; i++) {
     create_actor(&server, i, &server.app_actors[i]);
   }
 
-  create_output_actor(&server);
-
   pthread_t input_thread = create_input_actor(&server);
 
   void *ptr;
-  int r = pthread_join(input_thread, (void**) &ptr);
+  r = pthread_join(input_thread, (void**) &ptr);
   CHECK(r != 0, "Failed to join on thread");
 
   LOG_INFO("Exiting server");

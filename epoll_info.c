@@ -25,17 +25,6 @@ void epoll_info_print(EpollInfo *epoll) {
 	   epoll->stats.bytes_written);
 }
 
-void set_accept_epoll_event(EpollInfo *epoll, int fd) {
-  struct epoll_event event;
-  memset(&event, 0, sizeof(event));
-  event.data.ptr = epoll;
-  event.events = EPOLLIN | EPOLLET;
-
-  int r = epoll_ctl(epoll->epoll_fd, EPOLL_CTL_ADD, fd, &event);
-  CHECK(r == -1, "Failed to register accept file descriptor for %s",
-	epoll->name);  
-}
-
 enum EpollError check_epoll_errors(EpollInfo *epoll, struct epoll_event *event) {
   if (event->events & EPOLLERR) {
     LOG_WARN("Epoll event error on %s due to read side of the socket closing",

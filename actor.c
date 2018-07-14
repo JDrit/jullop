@@ -4,6 +4,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <semaphore.h>
 #include <unistd.h>
 
 #include "actor.h"
@@ -31,7 +32,11 @@ static RequestContext *read_request_context(int fd) {
 
 static void write_request_context(int fd, RequestContext *request_context) {
   request_set_actor_end(&request_context->time_stats);
-  
+
+  /* Now the request is blocked till the actor responds back with the
+   * final result. */
+  request_context->state = ACTOR_READ;
+
   Message message;
   message_init(&message, request_context);
 
@@ -39,23 +44,22 @@ static void write_request_context(int fd, RequestContext *request_context) {
 }
 
 void *run_actor(void *pthread_input) {
-    
   ActorInfo *actor_info = (ActorInfo*) pthread_input;
-  LOG_DEBUG("Starting actor #%d, input=%d, output=%d",
-	    actor_info->id,
-	    actor_info->actor_requests_fd,
-	    actor_info->actor_responses_fd);
+
+  // make sure all application threads have started
+  pthread_barrier_wait(actor_info->startup);
+  
+  
+  LOG_INFO("Starting actor #%d, input=%d, output=%d",
+	   actor_info->id,
+	   actor_info->actor_requests_fd,
+	   actor_info->actor_responses_fd);
 
   while (1) {
     RequestContext *request_context = read_request_context(actor_info->actor_requests_fd);
     request_context->actor_id = actor_info->id;
     
     HttpRequest http_request = request_context->http_request;
-
-    /*LOG_INFO("actor %d received request: %.*s %.*s",
-	     actor_info->id,
-	     (int) http_request.method_len, http_request.method,
-	     (int) http_request.path_len, http_request.path);*/
 
     HttpResponse http_response;
     init_http_response(&http_response, 200, http_request.path, http_request.path_len);

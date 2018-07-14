@@ -1,6 +1,8 @@
 #ifndef __server_h__
 #define __server_h__
 
+#include <pthread.h>
+
 #include "queue.h"
 
 typedef struct ActorInfo {
@@ -21,6 +23,10 @@ typedef struct ActorInfo {
   /* the file descriptor that the output actor uses to listen for
    * request on. */
   int output_actor_fd;
+
+  /* this is just a reference to the pthread_barrier_t owned by the
+   * server struct. */
+  pthread_barrier_t *startup;
   
 } ActorInfo;
 
@@ -31,6 +37,10 @@ typedef struct Server {
   int actor_count;
   /* the list of the actors running */
   ActorInfo *app_actors;
+
+  /* used to block all threads till the application actors have
+   * started. */
+  pthread_barrier_t startup;
   
 } Server;
 
