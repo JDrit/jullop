@@ -15,9 +15,8 @@
 #include <sys/epoll.h>
 
 #include "actor.h"
-#include "input_actor.h"
+#include "io_worker.h"
 #include "logging.h"
-#include "output_actor.h"
 #include "queue.h"
 #include "request_context.h"
 #include "server.h"
@@ -99,7 +98,7 @@ void create_actor(Server *server, int id, ActorInfo *actor) {
 
 pthread_t create_input_actor(Server *server) {
   pthread_t thread;
-  int r = pthread_create(&thread, NULL, input_event_loop, server);
+  int r = pthread_create(&thread, NULL, io_event_loop, server);
   CHECK(r != 0, "Failed to create input actor thread");
 
   // input actor thread is not detached so that we can call

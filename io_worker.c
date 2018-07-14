@@ -14,7 +14,7 @@
 #include <unistd.h>
 
 #include "epoll_info.h"
-#include "input_actor.h"
+#include "io_worker.h"
 #include "logging.h"
 #include "message_passing.h"
 #include "request_context.h"
@@ -64,15 +64,50 @@ static void close_client_connection(EpollInfo *epoll_info,
   RequestContext *request_context = io_context->context.request_context;
   
   epoll_info->stats.active_connections--;
+  epoll_info->stats.total_requests_processed++;
+  epoll_info->stats.bytes_written += context_bytes_written(request_context);
   epoll_info->stats.bytes_read += context_bytes_read(request_context);
+
+  if (epoll_info->stats.total_requests_processed % 100000 == 0) {
+    epoll_info_print(epoll_info);
+  }
+  
   delete_epoll_event(epoll_info, request_context->fd);
 
   // log the timestamp at which the request is done
   request_set_end(&request_context->time_stats);
 
+
+  close(request_context->fd);
+  
   // finishes up the request
-  request_finish_destroy(request_context, result);
+  context_finalize_destroy(request_context, result);  
   free(io_context);
+}
+
+static void reset_client_connection(EpollInfo *epoll_info,
+				    IoContext *io_context,
+				    enum RequestResult result) {
+  LOG_DEBUG("Resetting client connection");
+  RequestContext *request_context = io_context->context.request_context;
+
+  epoll_info->stats.total_requests_processed++;
+  epoll_info->stats.bytes_written += context_bytes_written(request_context);
+  epoll_info->stats.bytes_read += context_bytes_read(request_context);
+
+  if (epoll_info->stats.total_requests_processed % 100000 == 0) {
+    epoll_info_print(epoll_info);
+  }
+
+  // log the timestamp at which the request is done
+  request_set_end(&request_context->time_stats);
+
+  // finishes up the request
+  context_finalize_reset(request_context, result);
+
+  request_set_start(&request_context->time_stats);
+
+  mod_input_epoll_event(epoll_info, request_context->fd, io_context);  
 }
 
 /**
@@ -144,7 +179,6 @@ void handle_accept_op(EpollInfo *epoll_info, int accept_fd) {
     
     LOG_DEBUG("New request from %s:%s", hbuf, sbuf);
     epoll_info->stats.active_connections++;
-    epoll_info->stats.total_requests_processed++;
 
     RequestContext *request_context = init_request_context(conn_sock, hbuf);
     request_set_start(&request_context->time_stats);
@@ -219,8 +253,6 @@ static void read_client_request(EpollInfo *epoll_info,
      * actor. */
     request_context->state = ACTOR_WRITE;
 
-    epoll_info->stats.active_connections--;
-
     size_t actor_id = (count++) % (size_t) server->actor_count;
 
     //todo fix this not to be blocking
@@ -272,7 +304,12 @@ static void write_client_response(EpollInfo *epoll_info, IoContext *io_context) 
     break;
   case WRITE_FINISH:
     request_context->state = FINISH;
-    close_client_connection(epoll_info, io_context, REQUEST_SUCCESS);
+
+    if (context_keep_alive(request_context) == 1) {
+      reset_client_connection(epoll_info, io_context, REQUEST_SUCCESS);
+    } else {
+      close_client_connection(epoll_info, io_context, REQUEST_SUCCESS);
+    }
     break;
   }
 }
@@ -334,7 +371,7 @@ void handle_actor_op(EpollInfo *epoll_info, Server *server, IoContext *io_contex
 /**
  * Runs the event loop and listens for connections on the given socket.
  */
-void *input_event_loop(void *pthread_input) {
+void *io_event_loop(void *pthread_input) {
   Server *server = (Server*) pthread_input;
 
   // make sure all application threads have started

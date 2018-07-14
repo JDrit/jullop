@@ -3,6 +3,6 @@
 
 #include "server.h"
 
-void *input_event_loop(void *pthread_input);
+void *io_event_loop(void *pthread_input);
 
 #endif

@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -71,43 +72,89 @@ size_t context_bytes_written(RequestContext *context) {
   return context->output_offset;
 }
 
-static void print_request_stats(RequestContext *context, enum RequestResult result) {
-  time_t total_request = request_get_total_time(&context->time_stats);
-  time_t client_read = request_get_client_read_time(&context->time_stats);
-  time_t client_write = request_get_client_write_time(&context->time_stats);
-  time_t actor_time = request_get_actor_time(&context->time_stats);
-  
-  LOG_INFO("Request Stats : result=%s fd=%d remote_host=%s actor=%d "
-	   "bytes_read=%zu bytes_written=%zu",
-	   request_result_name(result),
-	   context->fd,
-	   context->remote_host,
-	   context->actor_id,
-	   context->input_offset,
-	   context->output_offset);
-  LOG_INFO("Time Stats    : total_micros=%ld client_read_micros=%ld "
-	   "actor_micros=%ld client_write_micros=%ld",
-	   total_request,
-	   client_read,
-	   actor_time,
-	   client_write);
+int context_keep_alive(RequestContext *context) {
+  HttpRequest http_request = context->http_request;
+
+  for (size_t i = 0 ; i < http_request.num_headers ; i++) {
+    struct phr_header header = http_request.headers[i];
+
+    // "Connection" is 10 characters long
+    if (header.name_len != 10) {
+      continue;
+    }
+    
+    if (strncmp(header.name, "Connection", 10) != 0) {
+      continue;
+    }
+
+    // "Keep-Alive" is 10 characters long
+    if (header.value_len != 10) {
+      continue;
+    }
+
+    if (strncmp(header.value, "Keep-Alive", 10) != 0) {
+      continue;
+    }
+
+    return 1;
+  }
+  return 0;
 }
 
-void request_finish_destroy(RequestContext *context, enum RequestResult result) {
-#ifdef DEBUG
+static inline void print_request_stats(RequestContext *context, enum RequestResult result) {  
+  LOG_DEBUG("Request Stats : result=%s fd=%d remote_host=%s actor=%d "
+	   "bytes_read=%zu bytes_written=%zu",
+	    request_result_name(result),
+	    context->fd,
+	    context->remote_host,
+	    context->actor_id,
+	    context->input_offset,
+	    context->output_offset);
+  LOG_DEBUG("Time Stats    : total_micros=%ld client_read_micros=%ld "
+	   "actor_micros=%ld client_write_micros=%ld",
+	    request_get_total_time(&context->time_stats),
+	    request_get_client_read_time(&context->time_stats),
+	    request_get_actor_time(&context->time_stats),
+	    request_get_client_write_time(&context->time_stats));
+}
+
+void context_finalize_reset(RequestContext *context, enum RequestResult result) {
   print_request_stats(context, result);
-#endif
 
-  // close the connection to the client
-  close(context->fd); 
-
-  // free allocated memory for the request
-  free(context->remote_host);
-  free(context->input_buffer);
+  context->actor_id = -1;
+  
+  // reset the input buffer
+  context->input_len = 0;
+  context->input_offset = 0;
 
   if (context->output_buffer != NULL) {
     free(context->output_buffer);
   }
+  
+  // reset the output buffer
+  context->output_len = 0;
+  context->output_offset = 0;
+  context->flags = 0;
+
+  context->state = CLIENT_READ;
+
+  memset(&context->time_stats, 0, sizeof(TimeStats));
+}
+
+void context_finalize_destroy(RequestContext *context, enum RequestResult result) {
+  print_request_stats(context, result);
+
+  
+  // free allocated memory for the request
+  free(context->input_buffer);
+
+  // free the buffer for the address of the remote hosr
+  free(context->remote_host);
+
+  if (context->output_buffer != NULL) {
+    free(context->output_buffer);
+  }
+  close(context->fd);
 
   free(context);
 }

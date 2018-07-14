@@ -59,6 +59,7 @@ typedef struct RequestContext {
 
   /* used to store the time spent on the request */
   TimeStats time_stats;
+  
 } RequestContext;
 
 /**
@@ -76,37 +77,16 @@ size_t context_bytes_read(RequestContext *context);
 /**
  * The number of bytes written back to the client.
  */
-size_t context_bytes_written(RequestContext *contex);
+size_t context_bytes_written(RequestContext *context);
 
-/**
- * Specifies the actor that this request will be sent to.
+/** 
+ * Returns 1 when the connection should be kept alive and 0 if the socket
+ * should be closed after the response.
  */
-void context_set_actor(RequestContext *context, ActorInfo *actor);
+int context_keep_alive(RequestContext *context);
 
-/**
- * Gets the actor that has been assigned to the given request.
- */
-ActorInfo *context_get_actor(RequestContext *actor);
+void context_finalize_reset(RequestContext *context, enum RequestResult result);
 
-/**
- * Sends the request to the target actor
- */
-enum WriteState context_write_actor_request(RequestContext *context);
-
-/**
- * Reads the response from the actor.
- */
-enum ReadState context_read_actor_response(RequestContext *context);
-
-enum WriteState context_write_client_response(RequestContext *context);
-
-enum ReadState context_read_client_request(RequestContext *context);
-
-/**
- * Indicates that the request has is done and that all resources should be 
- * clean up for it. The RequestResult is used to indicate the final result
- * of the request.
- */
-void request_finish_destroy(RequestContext *context, enum RequestResult result);
+void context_finalize_destroy(RequestContext *context, enum RequestResult result);
 
 #endif
