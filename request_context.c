@@ -124,11 +124,12 @@ void context_finalize_reset(RequestContext *context, enum RequestResult result) 
   context->actor_id = -1;
   
   // reset the input buffer
-  context->input_len = 0;
+  context->input_len = BUF_SIZE;
   context->input_offset = 0;
 
   if (context->output_buffer != NULL) {
     free(context->output_buffer);
+    context->output_buffer = NULL;
   }
   
   // reset the output buffer
@@ -144,7 +145,6 @@ void context_finalize_reset(RequestContext *context, enum RequestResult result) 
 void context_finalize_destroy(RequestContext *context, enum RequestResult result) {
   print_request_stats(context, result);
 
-  
   // free allocated memory for the request
   free(context->input_buffer);
 
@@ -153,6 +153,7 @@ void context_finalize_destroy(RequestContext *context, enum RequestResult result
 
   if (context->output_buffer != NULL) {
     free(context->output_buffer);
+    context->output_buffer = NULL;
   }
   close(context->fd);
 

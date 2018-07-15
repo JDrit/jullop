@@ -21,10 +21,7 @@
 #include "request_context.h"
 #include "server.h"
 
-#define PORT 8080
-#define QUEUE_LENGTH 100
-
-static int create_socket() {
+static int create_socket(uint16_t port, int queue_length) {
   int opt = 1;
   int sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
   CHECK(sock == -1, "Failed to get socket");
@@ -41,13 +38,13 @@ static int create_socket() {
   
   address.sin_family = AF_INET;
   address.sin_addr.s_addr = INADDR_ANY;
-  address.sin_port = htons(PORT);
+  address.sin_port = htons(port);
 
   CHECK(bind(sock, (struct sockaddr*) &address, sizeof(address)) == -1,
-	"bind failure to %d", PORT);
+	"bind failure to %d", port);
   LOG_DEBUG("socket bind complete");
-  CHECK(listen(sock, QUEUE_LENGTH), "socket listen");
-  LOG_DEBUG("listening on %d", PORT);
+  CHECK(listen(sock, queue_length), "socket listen");
+  LOG_DEBUG("listening on %d", port);
   
   return sock;
 }
@@ -96,15 +93,22 @@ void create_actor(Server *server, int id, ActorInfo *actor) {
   CHECK(r != 0, "Failed to set cpu infinity to %d", id);
 }
 
-pthread_t create_input_actor(Server *server) {
+pthread_t create_input_actor(int id, int sock_fd, Server *server) {
+  IoWorkerArgs *args = (IoWorkerArgs*) CHECK_MEM(calloc(1, sizeof(IoWorkerArgs)));
+  args->id = id;
+  args->sock_fd = sock_fd;
+  args->server = server;
+  
   pthread_t thread;
-  int r = pthread_create(&thread, NULL, io_event_loop, server);
+  int r = pthread_create(&thread, NULL, io_event_loop, args);
   CHECK(r != 0, "Failed to create input actor thread");
 
   // input actor thread is not detached so that we can call
   // pthread_join on it and block the main thread.
-  
-  const char *name = "io-thread";
+
+  size_t max_name_size = 16;
+  char *name = (char*) CHECK_MEM(calloc(1, sizeof(max_name_size)));
+  snprintf(name, max_name_size, "io-%d", args->id);
   r = pthread_setname_np(thread, name);
   CHECK(r != 0, "Failed to set input actor name");
 
@@ -112,26 +116,34 @@ pthread_t create_input_actor(Server *server) {
 }
 
 int main(int argc, char* argv[]) {
-  pid_t pid = getpid();
-  LOG_INFO("starting up pid=%d port=%d", pid, PORT);
-
-  int sock_fd = create_socket();
+  uint16_t port = 8080;
+  int queue_length = 10;
+  int io_worker_count = 1;
   int cores = get_nprocs();
+  pid_t pid = getpid();
+  
+  LOG_INFO("starting up pid=%d port=%d", pid, port);
+
 
   struct Server server;
-  server.sock_fd = sock_fd;
+  server.io_worker_count = io_worker_count;
   server.actor_count = cores;
   server.app_actors = (ActorInfo*) CHECK_MEM(calloc((size_t) cores, sizeof(ActorInfo)));
 
-  int r = pthread_barrier_init(&server.startup, NULL, (uint) server.actor_count + 1);
+  int r = pthread_barrier_init(&server.startup, NULL,
+			       (uint) (server.actor_count + server.io_worker_count));
   CHECK(r != 0, "Failed to construct pthread barrier");
 
   for (int i = 0 ; i < cores ; i++) {
     create_actor(&server, i, &server.app_actors[i]);
   }
 
-  pthread_t input_thread = create_input_actor(&server);
-
+  pthread_t input_thread;
+  for (int i = 0 ; i < io_worker_count ; i++) {
+    int sock_fd = create_socket(port, queue_length);
+    input_thread = create_input_actor(i, sock_fd, &server);
+  }
+  
   void *ptr;
   r = pthread_join(input_thread, (void**) &ptr);
   CHECK(r != 0, "Failed to join on thread");

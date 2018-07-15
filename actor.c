@@ -61,8 +61,33 @@ void *run_actor(void *pthread_input) {
     
     HttpRequest http_request = request_context->http_request;
 
+    HttpHeader headers[10];
+    size_t header_count = 2;
+
+
+    headers[0].name = "Content-Length";
+    headers[0].name_len = 14;
+
+    char content_length_value[10];
+    int size = sprintf(content_length_value, "%zu", http_request.path_len);
+    CHECK(size <= 0, "Failed to print content length string");
+    
+    headers[0].value = content_length_value;
+    headers[0].value_len = (size_t) size;
+
+    headers[1].name = "Connection";
+    headers[1].name_len = 10;
+    if (context_keep_alive(request_context) == 1) {
+      headers[1].value = "keep-alive";
+      headers[1].value_len = 10;
+    } else {
+      headers[1].value = "close";
+      headers[1].value_len = 5;
+    }
+
     HttpResponse http_response;
-    init_http_response(&http_response, 200, http_request.path, http_request.path_len);
+    http_response_init(&http_response, 200, headers, header_count, http_request.path,
+		       http_request.path_len);
 
     request_context->output_buffer = http_response.output;
     request_context->output_len = http_response.output_len;

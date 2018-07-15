@@ -77,9 +77,6 @@ static void close_client_connection(EpollInfo *epoll_info,
   // log the timestamp at which the request is done
   request_set_end(&request_context->time_stats);
 
-
-  close(request_context->fd);
-  
   // finishes up the request
   context_finalize_destroy(request_context, result);  
   free(io_context);
@@ -107,7 +104,8 @@ static void reset_client_connection(EpollInfo *epoll_info,
 
   request_set_start(&request_context->time_stats);
 
-  mod_input_epoll_event(epoll_info, request_context->fd, io_context);  
+  delete_epoll_event(epoll_info, request_context->fd);
+  add_input_epoll_event(epoll_info, request_context->fd, io_context);  
 }
 
 /**
@@ -372,7 +370,9 @@ void handle_actor_op(EpollInfo *epoll_info, Server *server, IoContext *io_contex
  * Runs the event loop and listens for connections on the given socket.
  */
 void *io_event_loop(void *pthread_input) {
-  Server *server = (Server*) pthread_input;
+  IoWorkerArgs *args = (IoWorkerArgs*) pthread_input;
+  int sock_fd = args->sock_fd;
+  Server *server = args->server;
 
   // make sure all application threads have started
   pthread_barrier_wait(&server->startup);
@@ -384,8 +384,8 @@ void *io_event_loop(void *pthread_input) {
   EpollInfo *epoll_info = init_epoll_info(name);
 
   /* Adds the epoll event for listening for new connections */
-  IoContext *accept_context = init_accept_io_context(server->sock_fd);  
-  add_input_epoll_event(epoll_info, server->sock_fd, accept_context);
+  IoContext *accept_context = init_accept_io_context(sock_fd);  
+  add_input_epoll_event(epoll_info, sock_fd, accept_context);
 
   /* Registers the output of the application-level actors so that responses
    * will be picked up and send back to the clients. */
