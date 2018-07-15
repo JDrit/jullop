@@ -2,12 +2,17 @@
 #define __server_h__
 
 #include <pthread.h>
+#include <sys/eventfd.h>
 
 #include "queue.h"
 
 typedef struct ActorInfo {
   /* unique identifier for the given actor. */
   int id;
+
+  Queue *input_queue;
+
+  Queue *output_queue;
 
   /* the file descriptor that the input actor uses to send requests to
    * the application-level actors. */

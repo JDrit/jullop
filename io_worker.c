@@ -82,6 +82,10 @@ static void close_client_connection(EpollInfo *epoll_info,
   free(io_context);
 }
 
+/**
+ * The client has asked for the socket to stay open for future requests. To
+ * achieve this, the request context is reset and reused for future operations.
+ */
 static void reset_client_connection(EpollInfo *epoll_info,
 				    IoContext *io_context,
 				    enum RequestResult result) {
@@ -261,7 +265,7 @@ static void read_client_request(EpollInfo *epoll_info,
     message_init(&message, request_context);
 
     enum WriteState write_state = message_write_async(fd, &message);
-    CHECK(write_state != WRITE_FINISH, "Failed to write message");
+    CHECK(write_state != WRITE_FINISH, "Failed to write message: %d", write_state);
 
     free(io_context);
 

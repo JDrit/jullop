@@ -11,29 +11,6 @@ struct Node {
   struct Node *next;
 };
 
-struct Queue {
-  /* max size of the queue */
-  size_t max_size;
-  /* how many items are currently in the queue */
-  size_t current_size;
-  /* stores the pointers to items in the queue */
-  void **ring_buffer;
-  /* the offset in the buffer where items will be added to */
-  size_t enqueue_offset;
-  /* the offset in the buffer where items will be removed from */
-  size_t dequeue_offset;
-  /* the number of threads waiting to push to the queue but cannot due
-   * to there not being enough space */
-  size_t num_waiting_full;
-  /* the number of threads waiting to pop from the queue but cannot due
-   * to there not being any items available */
-  size_t num_waiting_empty;
-
-  pthread_mutex_t lock;
-  pthread_cond_t is_empty;
-  pthread_cond_t is_full;
-};
-
 static inline int is_full(Queue *queue) {
   return queue->current_size == queue->max_size;
 }

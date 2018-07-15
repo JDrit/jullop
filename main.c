@@ -1,18 +1,19 @@
 #define _GNU_SOURCE
-#include <stdio.h>
-#include <stdlib.h>
+
 #include <errno.h>
 #include <fcntl.h>
-#include <pthread.h>
-#include <unistd.h>
 #include <netdb.h>
-
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/sysinfo.h>
 #include <sys/types.h>
-#include <sys/epoll.h>
+#include <unistd.h>
 
 #include "actor.h"
 #include "io_worker.h"
@@ -20,6 +21,7 @@
 #include "queue.h"
 #include "request_context.h"
 #include "server.h"
+#include "queue.h"
 
 static int create_socket(uint16_t port, int queue_length) {
   int opt = 1;
@@ -52,6 +54,9 @@ static int create_socket(uint16_t port, int queue_length) {
 void create_actor(Server *server, int id, ActorInfo *actor) {
   actor->id = id;
   actor->startup = &server->startup;
+
+  actor->input_queue = queue_init(100);
+  actor->output_queue = queue_init(100);
 
   int fds[2];
   int r = socketpair(AF_LOCAL, SOCK_SEQPACKET, 0, fds);
