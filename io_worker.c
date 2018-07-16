@@ -89,7 +89,6 @@ static void close_client_connection(EpollInfo *epoll_info,
 static void reset_client_connection(EpollInfo *epoll_info,
 				    IoContext *io_context,
 				    enum RequestResult result) {
-  LOG_DEBUG("Resetting client connection");
   RequestContext *request_context = io_context->context.request_context;
 
   epoll_info->stats.total_requests_processed++;
@@ -385,7 +384,7 @@ void *io_event_loop(void *pthread_input) {
   
   
   const char *name = "IO-Thread";
-  EpollInfo *epoll_info = init_epoll_info(name);
+  EpollInfo *epoll_info = epoll_info_init(name);
 
   /* Adds the epoll event for listening for new connections */
   IoContext *accept_context = init_accept_io_context(sock_fd);  
@@ -398,9 +397,9 @@ void *io_event_loop(void *pthread_input) {
     IoContext *io_context = init_actor_io_context(fd);
     add_input_epoll_event(epoll_info, fd, io_context);
   }
-
+  
+  struct epoll_event events[MAX_EVENTS];
   while (1) {
-    struct epoll_event events[MAX_EVENTS];
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
     LOG_DEBUG("Received %d epoll events", ready_amount);
     if (ready_amount == -1) {

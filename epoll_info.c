@@ -2,18 +2,24 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <sys/epoll.h>
 
 #include "epoll_info.h"
 #include "logging.h"
 
-EpollInfo *init_epoll_info(const char *name) {
+EpollInfo *epoll_info_init(const char *name) {
   EpollInfo *epoll_info = (EpollInfo*) CHECK_MEM(calloc(1, sizeof(EpollInfo)));
   int epoll_fd = epoll_create(1);
   CHECK(epoll_fd == -1, "Failed to create epoll file descriptor");
   epoll_info->epoll_fd = epoll_fd;
   epoll_info->name = name;
   return epoll_info;
+}
+
+void epoll_info_destroy(EpollInfo *epoll_info) {  
+  close(epoll_info->epoll_fd);
+  free(epoll_info);
 }
 
 void epoll_info_print(EpollInfo *epoll) {

@@ -3,6 +3,16 @@
 
 #include <stdint.h>
 
+/**
+ * The mailbox is designed for efficient inter-thread communication when there is
+ * only 1 thread writing sending messages and multiple threads receiving them.
+ * 
+ * There is no blocking / conditional variables used in this code-base. If the mailbox
+ * is full, then send requests will fail. To allow the receiver of messages to wait
+ * for new data, the mailbox exposes an event file descriptor and sends a notification
+ * on it every time that there is a new message.
+ */
+
 enum MailResult {
   MAIL_SUCCESS,
   MAIL_FAILURE,
@@ -19,6 +29,7 @@ typedef struct Mailbox {
   
 } Mailbox;
 
+const char *mail_result_name(enum MailResult result);
 
 /**
  * Constructs a mailbox to send / receive requests on with a given max size.

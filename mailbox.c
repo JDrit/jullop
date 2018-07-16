@@ -17,6 +17,14 @@ typedef struct State {
   uint16_t __trash;
 } State;
 
+const char *mail_result_name(enum MailResult result) {
+  switch (result) {
+  case MAIL_SUCCESS: return "MAIL_SUCCESS";
+  case MAIL_FAILURE: return "MAIL_FAILURE";
+  default: return "MAIL_UNKNOWN";
+  }
+}
+
 Mailbox *mailbox_init(uint16_t max_size) {
   Mailbox *mailbox = (Mailbox*) CHECK_MEM(calloc(1, sizeof(Mailbox)));
   mailbox->max_size = max_size;
@@ -30,6 +38,9 @@ void mailbox_destroy(Mailbox *mailbox) {
   free(mailbox->ring_buffer);
   close(mailbox->add_event);
   free(mailbox);
+}
+int mailbox_add_event_fd(Mailbox *mailbox) {
+  return mailbox->add_event;
 }
 
 static inline void load_state(Mailbox *mailbox, uint64_t *state_encoded) {
@@ -70,6 +81,7 @@ enum MailResult mailbox_send(Mailbox *mailbox, void *data) {
     }
   }
   
+  //todo: consider only sending this when the queue was empty before
   int r = eventfd_write(mailbox->add_event, 1);
   CHECK(r != 0, "Failed to send event notification");  
   return MAIL_SUCCESS;

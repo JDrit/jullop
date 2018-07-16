@@ -33,7 +33,9 @@ enum EpollError {
  * Creates epoll event loop. The given `accept_fd` is the file descriptor
  * used to listen to new requests on.
  */
-EpollInfo *init_epoll_info(const char *name);
+EpollInfo *epoll_info_init(const char *name);
+
+void epoll_info_destroy(EpollInfo *epoll_info);
 
 void epoll_info_print(EpollInfo *epoll);
 
