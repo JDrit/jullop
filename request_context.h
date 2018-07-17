@@ -4,7 +4,6 @@
 #include <stdint.h>
 
 #include "http_request.h"
-#include "server.h"
 #include "time_stats.h"
 
 enum RequestResult {
@@ -84,6 +83,11 @@ size_t context_bytes_written(RequestContext *context);
  * should be closed after the response.
  */
 int context_keep_alive(RequestContext *context);
+
+/**
+ * Generates info-level output of the request.
+ */
+void context_print_finish(RequestContext *context, enum RequestResult result);
 
 void context_finalize_reset(RequestContext *context, enum RequestResult result);
 

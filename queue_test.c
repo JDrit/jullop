@@ -8,25 +8,20 @@
 
 #include "epoll_info.h"
 #include "logging.h"
-#include "mailbox.h"
+#include "queue.h"
+#include "request_context.h"
 
 #define MESSAGE_COUNT 100
 #define MAX_EVENTS 10
 
-typedef struct Message {
-  int id;
-} Message;
-
 void *send_messages(void *data) {
   LOG_INFO("Starting up the send thread");
-  Mailbox *mailbox = (Mailbox*) data;
+  Queue *queue = (Queue*) data;
 
   for (int i = 0 ; i < MESSAGE_COUNT ; i++) {
-    Message *message = (Message*) CHECK_MEM(malloc(sizeof(Message)));
-    message->id = i;
-
-    mailbox_send(mailbox, message);
-
+    RequestContext *request_context = init_request_context(i, "hostname");
+    sleep(1);
+    queue_push(queue, request_context);
   }
 
   return NULL;
@@ -34,15 +29,16 @@ void *send_messages(void *data) {
 
 void *recv_messages(void *data) {
   LOG_INFO("Starting up the recv thread");
-  Mailbox *mailbox = (Mailbox*) data;
+  Queue *queue = (Queue*) data;
 
   EpollInfo *epoll_info = epoll_info_init("recv-messages");
-  int fd = mailbox_add_event_fd(mailbox);
-  add_input_epoll_event(epoll_info, fd, mailbox);
+  int fd = queue_add_event_fd(queue);
+  add_input_epoll_event(epoll_info, fd, queue);
 
   int count = 0;
 
   while (count < MESSAGE_COUNT) {
+
     struct epoll_event events[MAX_EVENTS];
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
     CHECK(ready_amount == -1, "Epoll wait failed");
@@ -51,14 +47,14 @@ void *recv_messages(void *data) {
       eventfd_t num_to_read;
       int r = eventfd_read(fd, &num_to_read);
       CHECK(r != 0, "Failed to read event file descriptor");
+      LOG_INFO("num ready: %lu", num_to_read);
 
       for (uint64_t j = 0 ; j < num_to_read ; j++) {
-	Message *message;
-	enum MailResult result = mailbox_recv(mailbox, (void**) &message);
-	CHECK(result != MAIL_SUCCESS, "Did not successfully read message");
-	LOG_INFO("received message: %d", message->id);
+	RequestContext *request_context;
+	enum QueueResult result = queue_pop(queue, &request_context);
+	CHECK(result != QUEUE_SUCCESS, "Did not successfully read message");
+	LOG_INFO("received message: %d", request_context->fd);
 	count++;
-	free(message);
       }
     }
   }
@@ -68,10 +64,10 @@ void *recv_messages(void *data) {
 }
 
 int main() {
-  Mailbox *mailbox = mailbox_init(MESSAGE_COUNT);
+  Queue *queue = queue_init(1024);
   
   pthread_t recv_thread;
-  int r = pthread_create(&recv_thread, NULL, recv_messages, mailbox);
+  int r = pthread_create(&recv_thread, NULL, recv_messages, queue);
   CHECK(r != 0, "Failed to create pthread");
 
   const char *recv_name = "recv-thrd";
@@ -79,7 +75,7 @@ int main() {
   CHECK(r != 0, "Failed to set name");
 
   pthread_t send_thread;
-  r = pthread_create(&send_thread, NULL, send_messages, mailbox);
+  r = pthread_create(&send_thread, NULL, send_messages, queue);
   CHECK(r != 0, "Failed to create pthread");
 
   const char *send_name = "send-thrd";
@@ -90,6 +86,6 @@ int main() {
   r = pthread_join(recv_thread, (void**) &ptr);
   CHECK(r != 0, "Failed to join on thread");
 
-  mailbox_destroy(mailbox);
+  queue_destroy(queue);
   LOG_INFO("Exiting mail test");
 }

@@ -77,3 +77,19 @@ void request_set_actor_end(TimeStats *time_stats) {
 time_t request_get_actor_time(TimeStats *time_stats) {
   return time_stats->actor_micros;
 }
+
+void request_set_queue_start(TimeStats *time_stats) {
+  get_time(&time_stats->mailbox_start);
+}
+
+void request_set_queue_end(TimeStats *time_stats) {
+  struct timespec mailbox_end;
+  get_time(&mailbox_end);
+
+  time_stats->mailbox_micros = get_time_delta(&time_stats->mailbox_start,
+					      &mailbox_end);
+}
+
+time_t request_get_queue_time(TimeStats *time_stats) {
+  return time_stats->mailbox_micros;
+}

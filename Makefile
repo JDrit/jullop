@@ -9,7 +9,7 @@ EXECUTABLE=jullop
 SOURCES=$(filter-out $(wildcard *test.c), $(wildcard *.c))
 OBJECTS=$(SOURCES:.c=.o)
 
-MAILBOX_TEST=mailbox_test
+MAILBOX_TEST=queue_test
 TEST_SOURCES=$(filter-out main.c, $(wildcard *.c))
 TEST_OBJECTS=$(TEST_SOURCES:.c=.o)
 

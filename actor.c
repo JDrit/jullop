@@ -2,62 +2,31 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <semaphore.h>
 #include <unistd.h>
 
 #include "actor.h"
+#include "epoll_info.h"
 #include "http_request.h"
 #include "http_response.h"
 #include "logging.h"
-#include "message_passing.h"
+#include "queue.h"
 #include "request_context.h"
+#include "server.h"
 #include "time_stats.h"
 
-static RequestContext *read_request_context(int fd) {
-  Message message;
-  message_reset(&message);
-  
-  message_read_sync(fd, &message);
-  
-  RequestContext *request_context = (RequestContext*) message_get_payload(&message);
-  
-  // Since the request context was created on the input actor thread, this makes sure
-  // that the application-level actor is able to see it.
-  __sync_synchronize();
-  request_set_actor_start(&request_context->time_stats);
-  return request_context;
-}
+#define MAX_EVENTS 10
 
-static void write_request_context(int fd, RequestContext *request_context) {
-  request_set_actor_end(&request_context->time_stats);
-
-  /* Now the request is blocked till the actor responds back with the
-   * final result. */
-  request_context->state = ACTOR_READ;
-
-  Message message;
-  message_init(&message, request_context);
-
-  message_write_sync(fd, &message);
-}
-
-void *run_actor(void *pthread_input) {
-  ActorInfo *actor_info = (ActorInfo*) pthread_input;
-
-  // make sure all application threads have started
-  pthread_barrier_wait(actor_info->startup);
-  
-  
-  LOG_INFO("Starting actor #%d, input=%d, output=%d",
-	   actor_info->id,
-	   actor_info->actor_requests_fd,
-	   actor_info->actor_responses_fd);
-
-  while (1) {
-    RequestContext *request_context = read_request_context(actor_info->actor_requests_fd);
-    request_context->actor_id = actor_info->id;
+/**
+ * Does the actual request processing. Takes in a request context and is
+ * responsible for constructing the HTTP response and storing it in the
+ * output buffer.
+ */
+static void handle_request(ActorInfo *actor_info, RequestContext *request_context) {
+   request_context->actor_id = actor_info->id;
     
     HttpRequest http_request = request_context->http_request;
 
@@ -91,12 +60,53 @@ void *run_actor(void *pthread_input) {
 
     request_context->output_buffer = http_response.output;
     request_context->output_len = http_response.output_len;
+}
 
-    // forwards the response to the output actor
-    write_request_context(actor_info->actor_responses_fd, request_context);
+void *run_actor(void *pthread_input) {
+  ActorInfo *actor_info = (ActorInfo*) pthread_input;
+
+  // make sure all application threads have started
+  pthread_barrier_wait(actor_info->startup);
+  
+  LOG_INFO("Starting actor #%d", actor_info->id);
+
+  const char *name = "actor-epoll";
+  EpollInfo *epoll_info = epoll_info_init(name);
+
+  Queue *input_queue = actor_info->input_queue;
+  Queue *output_queue = actor_info->output_queue;
+  int event_fd = queue_add_event_fd(input_queue);
+  
+  add_input_epoll_event(epoll_info, event_fd, input_queue);
+
+  struct epoll_event events[MAX_EVENTS];
+  while (1) {
+    int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
+    CHECK(ready_amount == -1, "Failed to wait on epoll");
+    
+    for (int i = 0 ; i < ready_amount ; i++) {
+      eventfd_t num_to_read;
+      int r = eventfd_read(event_fd, &num_to_read);
+      CHECK(r != 0, "Failed to read event file descriptor");
+
+      for (eventfd_t j = 0 ; j < num_to_read ; j++) {
+	RequestContext *request_context;
+	enum QueueResult result = queue_pop(input_queue, &request_context);
+	CHECK(result != QUEUE_SUCCESS, "Did not successfully read message");
+
+	/* process the actor request and generate a response. */
+	request_set_actor_start(&request_context->time_stats);
+
+	handle_request(actor_info, request_context);
+
+	request_set_actor_end(&request_context->time_stats);
+	
+	result = queue_push(output_queue, request_context);
+	CHECK(result != QUEUE_SUCCESS, "Failed to send request context back");
+      }
+    }
   }
   
   return NULL;
 }
-
 

@@ -16,10 +16,14 @@ typedef struct TimeStats {
   /* timestamp that we started writing the request to the actor */
   struct timespec actor_start;
 
+  /* timestamp that we started writing the request to the actor */
+  struct timespec mailbox_start;
+
   time_t request_micros;
   time_t client_read_micros;
   time_t client_write_micros;
   time_t actor_micros;
+  time_t mailbox_micros;
 } TimeStats;
 
 /**
@@ -89,5 +93,22 @@ void request_set_actor_end(TimeStats *time_stats);
  * request.
  */
 time_t request_get_actor_time(TimeStats *time_stats);
+
+/**
+ * Stats calculating the amount of time that the request spends in the
+ * queue.
+ */
+void request_set_queue_start(TimeStats *time_stats);
+
+/**
+ * Uses the previously set queue start time to calculate the amount of
+ * time spent in the queue.
+ */
+void request_set_queue_end(TimeStats *time_stats);
+
+/**
+ * Returns the amount of time that the request spent in the queue.
+ */
+time_t request_get_queue_time(TimeStats *time_stats);
 
 #endif

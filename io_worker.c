@@ -7,6 +7,7 @@
 #include <netinet/tcp.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/epoll.h>
@@ -17,16 +18,23 @@
 #include "io_worker.h"
 #include "logging.h"
 #include "message_passing.h"
+#include "queue.h"
 #include "request_context.h"
 #include "time_stats.h"
 
 #define MAX_EVENTS 250
 
 typedef struct ActorContext {
+  /* the id of the actor. */
+  int id;
+  /* the event file descriptor used for messages from the actor. */
   int fd;
+  /* the queue to receieve events back from the actor. */
+  Queue *queue;
 } ActorContext;
 
 typedef struct AcceptContext {
+  /* the file descriptor to listen for new connections on. */
   int fd;
 } AcceptContext;
 
@@ -45,6 +53,36 @@ typedef struct IoContext {
   } context;
   
 } IoContext;
+
+static struct timespec last_print;
+static uint64_t from_client = 0;
+static uint64_t to_actor = 0;
+static uint64_t from_actor = 0;
+static uint64_t to_client = 0;
+
+static void print_stats(Server *server, EpollInfo *epoll_info) {
+  struct timespec cur_time;
+  clock_gettime(CLOCK_MONOTONIC, &cur_time);
+
+  if (cur_time.tv_sec - last_print.tv_sec > 5) {
+    last_print = cur_time;
+
+    size_t input_size = 0;
+    size_t output_size = 0;
+    
+    for (int i = 0 ; i < server->actor_count ; i++) {
+      input_size += queue_size(server->app_actors[i].input_queue);
+      output_size += queue_size(server->app_actors[i].output_queue);
+    }
+    LOG_INFO("-------------------------------------------------------");
+    LOG_INFO("Stats: total: %lu active: %lu",
+	     epoll_info->stats.total_requests_processed,
+	     epoll_info->stats.active_connections);    
+    LOG_INFO("Actor: input: %lu output: %lu", input_size, output_size);
+    epoll_info_print(epoll_info);
+  }
+  
+}
 
 static inline const char* context_type_name(IoContext *io_context) {
   switch (io_context->type) {
@@ -68,14 +106,10 @@ static void close_client_connection(EpollInfo *epoll_info,
   epoll_info->stats.bytes_written += context_bytes_written(request_context);
   epoll_info->stats.bytes_read += context_bytes_read(request_context);
 
-  if (epoll_info->stats.total_requests_processed % 100000 == 0) {
-    epoll_info_print(epoll_info);
-  }
-  
-  delete_epoll_event(epoll_info, request_context->fd);
-
   // log the timestamp at which the request is done
   request_set_end(&request_context->time_stats);
+    
+  delete_epoll_event(epoll_info, request_context->fd);
 
   // finishes up the request
   context_finalize_destroy(request_context, result);  
@@ -95,10 +129,6 @@ static void reset_client_connection(EpollInfo *epoll_info,
   epoll_info->stats.bytes_written += context_bytes_written(request_context);
   epoll_info->stats.bytes_read += context_bytes_read(request_context);
 
-  if (epoll_info->stats.total_requests_processed % 100000 == 0) {
-    epoll_info_print(epoll_info);
-  }
-
   // log the timestamp at which the request is done
   request_set_end(&request_context->time_stats);
 
@@ -107,8 +137,7 @@ static void reset_client_connection(EpollInfo *epoll_info,
 
   request_set_start(&request_context->time_stats);
 
-  delete_epoll_event(epoll_info, request_context->fd);
-  add_input_epoll_event(epoll_info, request_context->fd, io_context);  
+  mod_input_epoll_event(epoll_info, request_context->fd, io_context);
 }
 
 /**
@@ -125,10 +154,12 @@ static void handle_epoll_client_error(EpollInfo *epoll_info,
   close_client_connection(epoll_info, io_context, REQUEST_EPOLL_ERROR);
 }
 
-static IoContext *init_actor_io_context(int fd) {
+static IoContext *init_actor_io_context(int id, int fd, Queue *queue) {
   IoContext *io_context = (IoContext*) CHECK_MEM(calloc(1, sizeof(IoContext)));
   ActorContext *actor_context = (ActorContext*) CHECK_MEM(calloc(1, sizeof(ActorContext)));
+  actor_context->id = id;
   actor_context->fd = fd;
+  actor_context->queue = queue;
   io_context->type = ACTOR;
   io_context->context.actor_context = actor_context;
   return io_context;
@@ -244,6 +275,7 @@ static void read_client_request(EpollInfo *epoll_info,
 
   switch (state) {
   case READ_FINISH: {
+    from_client++;
 
     /* We have to deregister the file descriptor from the event loop 
      * before we send it off or a race condition could cause it to be
@@ -258,16 +290,13 @@ static void read_client_request(EpollInfo *epoll_info,
 
     //todo fix this not to be blocking
     ActorInfo *actor_info = &server->app_actors[actor_id];
-    int fd = actor_info->input_actor_fd;
+    Queue *input_queue = actor_info->input_queue;
     
-    Message message;
-    message_init(&message, request_context);
-
-    enum WriteState write_state = message_write_async(fd, &message);
-    CHECK(write_state != WRITE_FINISH, "Failed to write message: %d", write_state);
-
+    enum QueueResult queue_result = queue_push(input_queue, request_context);
+    CHECK(queue_result != QUEUE_SUCCESS, "Failed to send message");
+    to_actor++;
+    
     free(io_context);
-
     return;
   }
   case READ_ERROR:
@@ -305,6 +334,7 @@ static void write_client_response(EpollInfo *epoll_info, IoContext *io_context) 
     break;
   case WRITE_FINISH:
     request_context->state = FINISH;
+    to_client++;
 
     if (context_keep_alive(request_context) == 1) {
       reset_client_connection(epoll_info, io_context, REQUEST_SUCCESS);
@@ -334,45 +364,37 @@ void handle_client_op(EpollInfo *epoll_info, Server *server, IoContext *io_conte
 void handle_actor_op(EpollInfo *epoll_info, Server *server, IoContext *io_context) {
   ActorContext *actor_context = io_context->context.actor_context;
 
-  Message message;
-  message_reset(&message);
-  enum ReadState state = message_read_async(actor_context->fd, &message);
+  eventfd_t num_to_read;
+  int r = eventfd_read(actor_context->fd, &num_to_read);
+  CHECK(r != 0, "Failed to read events: %d", r);
 
-  switch (state) {
-  case READ_BUSY:
-    LOG_DEBUG("Actor socket busy");
-    break;
-  case CLIENT_DISCONNECT:
-  case READ_ERROR:
-    LOG_WARN("Error while reading response from actor");
-    break;
-  case READ_FINISH: {
-    
-    /* Once the full message has been read from the application-level actor,
-     * register the client's file descriptor to start writing the response out */    
-    RequestContext *request_context = (RequestContext*) message_get_payload(&message);
+  /* there might be multiple messages to read so process them all */
+  for (eventfd_t i = 0 ; i < num_to_read ; i ++) {
+    RequestContext *request_context;
+    enum QueueResult queue_result = queue_pop(actor_context->queue, &request_context);
 
-    /* The request context was originally created by the input actor thread and
-     * then modified by the application-level actor so we need to make sure that
-     * the cache lines have been flused. */
-    __sync_synchronize();
-
-    /* All that is left is to send the response back to the client. */
-    request_context->state = CLIENT_WRITE;
-    
-    /* Adds an epoll event responsible for writing the fully constructed HTTP 
-     * response back to the client. */
-    IoContext *client_output = init_client_io_context(request_context);
-    add_output_epoll_event(epoll_info, request_context->fd, client_output);
+    from_actor++;
+    switch (queue_result) {
+    case QUEUE_FAILURE:
+      FAIL("Failed to read request from actor");
+      break;
+    case QUEUE_SUCCESS:
+      /* All that is left is to send the response back to the client. */
+      request_context->state = CLIENT_WRITE;
+      
+      /* Adds an epoll event responsible for writing the fully constructed HTTP 
+       * response back to the client. */
+      IoContext *client_output = init_client_io_context(request_context);
+      add_output_epoll_event(epoll_info, request_context->fd, client_output);      
+    }
   }
-  }
-
 }
 
 /**
  * Runs the event loop and listens for connections on the given socket.
  */
 void *io_event_loop(void *pthread_input) {
+  clock_gettime(CLOCK_MONOTONIC, &last_print);
   IoWorkerArgs *args = (IoWorkerArgs*) pthread_input;
   int sock_fd = args->sock_fd;
   Server *server = args->server;
@@ -381,8 +403,7 @@ void *io_event_loop(void *pthread_input) {
   pthread_barrier_wait(&server->startup);
 
   LOG_INFO("Starting IO thread");
-  
-  
+    
   const char *name = "IO-Thread";
   EpollInfo *epoll_info = epoll_info_init(name);
 
@@ -393,15 +414,18 @@ void *io_event_loop(void *pthread_input) {
   /* Registers the output of the application-level actors so that responses
    * will be picked up and send back to the clients. */
   for (int i = 0 ; i < server->actor_count ; i++) {
-    int fd = server->app_actors[i].output_actor_fd;
-    IoContext *io_context = init_actor_io_context(fd);
+    Queue *output_queue = server->app_actors[i].output_queue;
+    int fd = queue_add_event_fd(output_queue);
+    
+    IoContext *io_context = init_actor_io_context(i, fd, output_queue);
     add_input_epoll_event(epoll_info, fd, io_context);
   }
   
   struct epoll_event events[MAX_EVENTS];
   while (1) {
-    int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
-    LOG_DEBUG("Received %d epoll events", ready_amount);
+    int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, 5000);
+    print_stats(server, epoll_info);
+
     if (ready_amount == -1) {
       LOG_WARN("Failed to wait on epoll");
       continue;

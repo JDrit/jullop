@@ -1,161 +1,96 @@
 #define _GNU_SOURCE
 
 #include <pthread.h>
+#include <stdatomic.h>
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdlib.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
 
 #include "logging.h"
 #include "queue.h"
+#include "request_context.h"
+#include "time_stats.h"
 
-struct Node {
-  void *ptr;
-  struct Node *next;
-};
-
-static inline int is_full(Queue *queue) {
-  return queue->current_size == queue->max_size;
-}
-
-static inline int is_empty(Queue *queue) {
-  return queue->current_size == 0;
+const char *queue_result_name(enum QueueResult result) {
+  switch (result) {
+  case QUEUE_SUCCESS: return "QUEUE_SUCCESS";
+  case QUEUE_FAILURE: return "QUEUE_FAILURE";
+  default: return "QUEUE_UNKNOWN";
+  }
 }
 
 Queue *queue_init(size_t max_size) {
   Queue *queue = (Queue*) CHECK_MEM(calloc(1, sizeof(Queue)));
   queue->max_size = max_size;
-  queue->ring_buffer = CHECK_MEM(calloc(max_size, sizeof(void*)));
-
-  int r = pthread_mutex_init(&queue->lock, NULL);
-  CHECK(r != 0, "Failed to create mutex");
-
-  r = pthread_cond_init(&queue->is_empty, NULL);
-  CHECK(r != 0, "Failed to create cond var");
-
-  r = pthread_cond_init(&queue->is_full, NULL);
-  CHECK(r != 0, "Failed to create cond var");
+  queue->push_offset = ATOMIC_VAR_INIT(0);
+  queue->pop_offset = ATOMIC_VAR_INIT(0);
+  queue->ring_buffer = (RequestContext**) CHECK_MEM(calloc(max_size, sizeof(RequestContext*)));
+  queue->add_event = eventfd(0, EFD_NONBLOCK);
 
   return queue;
 }
 
 void queue_destroy(Queue *queue) {
   free(queue->ring_buffer);
-
-  int r = pthread_mutex_destroy(&queue->lock);
-  CHECK(r != 0, "Failed to destory mutex");
-
-  r = pthread_cond_destroy(&queue->is_empty);
-  CHECK(r != 0, "Failed to destroy cond var");
-
-  r = pthread_cond_destroy(&queue->is_full);
-  CHECK(r != 0, "Failed to destroy cond var");
-
+  close(queue->add_event);
   free(queue);
+}
+int queue_add_event_fd(Queue *queue) {
+  return queue->add_event;
+}
+
+void queue_print(Queue *queue) {
+  LOG_INFO("Queue: size=%zu", queue_size(queue));
 }
 
 size_t queue_size(Queue *queue) {
-  int r = pthread_mutex_lock(&queue->lock);
-  CHECK(r != 0, "Failed to lock mutex");
+  size_t push_offset = atomic_load(&queue->push_offset);
+  size_t pop_offset = atomic_load(&queue->pop_offset);
 
-  size_t size = queue->current_size;
-
-  r = pthread_mutex_unlock(&queue->lock);
-  CHECK(r != 0, "Failed to unlock mutex");
-
-  return size;
+  if (push_offset > pop_offset) {
+    return push_offset - pop_offset;
+  } else {
+    return queue->max_size - pop_offset + push_offset;
+  }
 }
 
-void queue_push(Queue *queue, void *ptr) {
+enum QueueResult queue_push(Queue *queue, RequestContext *request_context) {
+  /* Starts tracking the time spent in the queue for this request. */
+  request_set_queue_start(&request_context->time_stats);
+	
+  size_t pop_offset = atomic_load(&queue->pop_offset);
+  size_t push_offset = atomic_load(&queue->push_offset);
 
-  int r = pthread_mutex_lock(&queue->lock);
-  CHECK(r != 0, "Failed to lock mutex");
-
-  while (is_full(queue)) {
-    queue->num_waiting_full++;
-    r = pthread_cond_wait(&queue->is_full, &queue->lock);
-    CHECK(r != 0, "Faled to wait on conditional variable");
-    queue->num_waiting_full--;
+  if ((push_offset + 1) % queue->max_size == pop_offset) {
+    return QUEUE_FAILURE;
   }
 
-  queue->ring_buffer[queue->enqueue_offset] = ptr;
-  queue->enqueue_offset = (queue->enqueue_offset + 1) % queue->max_size;
-  queue->current_size++;
+  queue->ring_buffer[push_offset] = request_context;
 
-  if (queue->num_waiting_empty) {
-    r = pthread_cond_signal(&queue->is_empty);
-    CHECK(r != 0, "Failed to signal empty conditional variable");
-  }
-
-  pthread_mutex_unlock(&queue->lock);
-}
-
-enum QueueResult queue_trypush(Queue *queue, void *ptr) {
-
-  int r = pthread_mutex_lock(&queue->lock);
-  CHECK(r != 0, "Failed to lock mutex");
-
-  if (is_full(queue)) {
-    r = pthread_mutex_unlock(&queue->lock);
-    CHECK(r != 0, "Failed to unlock mutex");
-    return QUEUE_FAIL;
-  }
-
-  queue->ring_buffer[queue->enqueue_offset] = ptr;
-  queue->enqueue_offset = (queue->enqueue_offset + 1) % queue->max_size;
-  queue->current_size++;
-  
-  if (queue->num_waiting_empty) {
-    r = pthread_cond_signal(&queue->is_empty);
-    CHECK(r != 0, "Failed to signal empty conditional variable");
-  }
-
-  r = pthread_mutex_unlock(&queue->lock);
-  CHECK(r != 0, "Failed to unlock mutex");
+  atomic_store(&queue->push_offset, (push_offset + 1) % queue->max_size);
+  int r = eventfd_write(queue->add_event, 1);
+  CHECK(r != 0, "Failed to send event notification");  
   return QUEUE_SUCCESS;
 }
 
-void queue_pop(Queue *queue, void **data) {
-  int r = pthread_mutex_lock(&queue->lock);
-  CHECK(r != 0, "Failed to lock mutex");
+enum QueueResult queue_pop(Queue *queue, RequestContext **request_context) {
 
-  while (is_empty(queue)) {
-    queue->num_waiting_empty++;
-    r = pthread_cond_wait(&queue->is_empty, &queue->lock);
-    CHECK(r != 0, "Failed to wait on codnitional variable");
-    queue->num_waiting_empty--;
-  }
-
-  *data = queue->ring_buffer[queue->dequeue_offset];
-  queue->dequeue_offset = (queue->dequeue_offset + 1) % queue->max_size;
-  queue->current_size--;
-
-  if (queue->num_waiting_full) {
-    r = pthread_cond_signal(&queue->is_full);
-    CHECK(r != 0, "Failed to signal full conditional variable");
-  }
+  size_t pop_offset = atomic_load(&queue->pop_offset);
+  size_t push_offset = atomic_load(&queue->push_offset);
+  size_t new_offset;
   
-  r = pthread_mutex_unlock(&queue->lock);
-  CHECK(r != 0, "Failed to unlock mutex");
-}
+  do {
+    if (pop_offset == push_offset) {
+      return QUEUE_FAILURE;
+    }
+    *request_context = queue->ring_buffer[pop_offset];
+    new_offset = (pop_offset + 1) % queue->max_size;
+    
+  } while (!atomic_compare_exchange_weak(&queue->pop_offset, &pop_offset, new_offset));
 
-enum QueueResult queue_trypop(Queue *queue, void **ptr) {
-  int r = pthread_mutex_lock(&queue->lock);
-  CHECK(r != 0, "Failed to lock mutex");
-
-  if (is_empty(queue)) {
-    r = pthread_mutex_unlock(&queue->lock);
-    CHECK(r != 0, "Failed to unlock mutex");
-    return QUEUE_FAIL;
-  }
-
-  *ptr = queue->ring_buffer[queue->dequeue_offset];
-  queue->dequeue_offset = (queue->dequeue_offset + 1) % queue->max_size;
-  queue->current_size--;
-
-  if (queue->num_waiting_full) {
-    r = pthread_cond_signal(&queue->is_full);
-    CHECK(r != 0, "Failed to signal full conditional variable");    
-  }
-
-  r = pthread_mutex_unlock(&queue->lock);
-  CHECK(r != 0, "Failed to unlock mutex");
+  request_set_queue_end(&(*request_context)->time_stats);
   return QUEUE_SUCCESS;
 }
+

@@ -2,7 +2,6 @@
 #define __server_h__
 
 #include <pthread.h>
-#include <sys/eventfd.h>
 
 #include "queue.h"
 
@@ -10,24 +9,13 @@ typedef struct ActorInfo {
   /* unique identifier for the given actor. */
   int id;
 
+  /* All requests that are going to this actor should be put into
+   * this queue. */
   Queue *input_queue;
 
+  /* The finished requests from the actor are inserted into this
+   * queue. */
   Queue *output_queue;
-
-  /* the file descriptor that the input actor uses to send requests to
-   * the application-level actors. */
-  int input_actor_fd;
-
-  /* the file descriptor that the application-level actor uses to 
-   * listen for requests on. */
-  int actor_requests_fd;
-
-  /* the file descriptor that the actor uses to send back responses. */
-  int actor_responses_fd;
-
-  /* the file descriptor that the output actor uses to listen for
-   * request on. */
-  int output_actor_fd;
 
   /* this is just a reference to the pthread_barrier_t owned by the
    * server struct. */

@@ -21,7 +21,6 @@
 #include "queue.h"
 #include "request_context.h"
 #include "server.h"
-#include "queue.h"
 
 static int create_socket(uint16_t port, int queue_length) {
   int opt = 1;
@@ -55,31 +54,12 @@ void create_actor(Server *server, int id, ActorInfo *actor) {
   actor->id = id;
   actor->startup = &server->startup;
 
-  actor->input_queue = queue_init(100);
-  actor->output_queue = queue_init(100);
-
-  int fds[2];
-  int r = socketpair(AF_LOCAL, SOCK_SEQPACKET, 0, fds);
-  CHECK(r != 0, "Failed to create actor socket pair");
-
-  actor->input_actor_fd = fds[0];
-  actor->actor_requests_fd = fds[1];
-  
-  // sets the input-actor side file descriptor as non-blocking
-  r = fcntl(actor->input_actor_fd, F_SETFL, O_NONBLOCK);
-  CHECK(r != 0, "Failed to set non-blocking");
-
-  r = socketpair(AF_LOCAL, SOCK_SEQPACKET, 0, fds);
-  CHECK(r != 0, "Failed to create actor socket pair");
-
-  actor->actor_responses_fd = fds[0];
-  actor->output_actor_fd = fds[1];
-
-  r = fcntl(actor->output_actor_fd, F_SETFL, O_NONBLOCK);
-  CHECK(r != 0, "Failed to set non-blocking");
+  uint16_t queue_size = 1024;
+  actor->input_queue = queue_init(queue_size);
+  actor->output_queue = queue_init(queue_size);
 
   pthread_t thread_id;
-  r = pthread_create(&thread_id, NULL, run_actor, actor);
+  int r = pthread_create(&thread_id, NULL, run_actor, actor);
   CHECK(r != 0, "Failed to create pthread %d", id);
 
   r = pthread_detach(thread_id);
