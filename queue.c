@@ -21,14 +21,33 @@ const char *queue_result_name(enum QueueResult result) {
   }
 }
 
+static inline size_t pow_2_size(size_t value) {
+  value--;
+  value |= value >> 1;
+  value |= value >> 2;
+  value |= value >> 4;
+  value |= value >> 8;
+  value |= value >> 16;
+  value++;
+  return value;
+}
+
 Queue *queue_init(size_t max_size) {
+  // memalign must be a power of two
+  max_size = pow_2_size(max_size);
+
   Queue *queue = (Queue*) CHECK_MEM(calloc(1, sizeof(Queue)));
   queue->max_size = max_size;
-  queue->push_offset = ATOMIC_VAR_INIT(0);
-  queue->pop_offset = ATOMIC_VAR_INIT(0);
-  queue->ring_buffer = (RequestContext**) CHECK_MEM(calloc(max_size, sizeof(RequestContext*)));
-  queue->add_event = eventfd(0, EFD_NONBLOCK);
+  queue->mask = max_size - 1;
+  queue->head = ATOMIC_VAR_INIT(0);
+  queue->tail = ATOMIC_VAR_INIT(0);
 
+  /* aligns the items in the queue to the word. */
+  int r = posix_memalign((void**) &queue->ring_buffer, sizeof(void*), max_size + 1);
+  CHECK(r != 0, "Failed to malloc an aligned memory region");
+
+  queue->add_event = eventfd(0, EFD_NONBLOCK);
+  LOG_DEBUG("Queue of size %zu created", queue->max_size);
   return queue;
 }
 
@@ -46,51 +65,47 @@ void queue_print(Queue *queue) {
 }
 
 size_t queue_size(Queue *queue) {
-  size_t push_offset = atomic_load(&queue->push_offset);
-  size_t pop_offset = atomic_load(&queue->pop_offset);
-
-  if (push_offset > pop_offset) {
-    return push_offset - pop_offset;
-  } else {
-    return queue->max_size - pop_offset + push_offset;
-  }
+  size_t tail = atomic_load(&queue->tail);
+  size_t head = atomic_load(&queue->head);
+  return head - tail;
 }
 
 enum QueueResult queue_push(Queue *queue, RequestContext *request_context) {
-  /* Starts tracking the time spent in the queue for this request. */
-  request_set_queue_start(&request_context->time_stats);
 	
-  size_t pop_offset = atomic_load(&queue->pop_offset);
-  size_t push_offset = atomic_load(&queue->push_offset);
+  size_t head = atomic_load(&queue->head);
+  size_t tail = atomic_load(&queue->tail);
 
-  if ((push_offset + 1) % queue->max_size == pop_offset) {
+  if (((tail - (head + 1)) & queue->mask) >= 1) {
+    /* Starts tracking the time spent in the queue for this request. */
+    request_set_queue_start(&request_context->time_stats);
+
+    queue->ring_buffer[head & queue->mask] = request_context;
+    atomic_store(&queue->head, head + 1);
+
+    /* Uses the event file descriptor as the notification system */
+    int r = eventfd_write(queue->add_event, 1);
+    CHECK(r != 0, "Failed to send event notification");
+    return QUEUE_SUCCESS;
+  } else {
     return QUEUE_FAILURE;
   }
-
-  queue->ring_buffer[push_offset] = request_context;
-
-  atomic_store(&queue->push_offset, (push_offset + 1) % queue->max_size);
-  int r = eventfd_write(queue->add_event, 1);
-  CHECK(r != 0, "Failed to send event notification");  
-  return QUEUE_SUCCESS;
 }
 
 enum QueueResult queue_pop(Queue *queue, RequestContext **request_context) {
 
-  size_t pop_offset = atomic_load(&queue->pop_offset);
-  size_t push_offset = atomic_load(&queue->push_offset);
-  size_t new_offset;
-  
-  do {
-    if (pop_offset == push_offset) {
-      return QUEUE_FAILURE;
-    }
-    *request_context = queue->ring_buffer[pop_offset];
-    new_offset = (pop_offset + 1) % queue->max_size;
-    
-  } while (!atomic_compare_exchange_weak(&queue->pop_offset, &pop_offset, new_offset));
+  size_t tail = atomic_load(&queue->tail);
+  size_t head = atomic_load(&queue->head);
 
-  request_set_queue_end(&(*request_context)->time_stats);
-  return QUEUE_SUCCESS;
+  if (((head - tail) & queue->mask) >= 1) {
+    *request_context = queue->ring_buffer[tail & queue->mask];
+
+    /* Finishes tracking the time spent in the queue for this request. */
+    request_set_queue_end(&(*request_context)->time_stats);
+    
+    atomic_store(&queue->tail, tail + 1);
+    return QUEUE_SUCCESS;
+  } else {
+    return QUEUE_FAILURE;
+  }
 }
 

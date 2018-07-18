@@ -62,6 +62,27 @@ static void handle_request(ActorInfo *actor_info, RequestContext *request_contex
     request_context->output_len = http_response.output_len;
 }
 
+void process_epoll_event(ActorInfo *actor_info) {
+
+  while (1) {
+    RequestContext *request_context;
+    enum QueueResult result = queue_pop(actor_info->input_queue, &request_context);
+    if (result == QUEUE_FAILURE) {
+      return;
+    }
+      
+    /* process the actor request and generate a response. */
+    request_set_actor_start(&request_context->time_stats);
+    
+    handle_request(actor_info, request_context);
+    
+    request_set_actor_end(&request_context->time_stats);
+      
+    result = queue_push(actor_info->output_queue, request_context);
+    CHECK(result != QUEUE_SUCCESS, "Failed to send request context back");
+  }
+}
+
 void *run_actor(void *pthread_input) {
   ActorInfo *actor_info = (ActorInfo*) pthread_input;
 
@@ -74,7 +95,6 @@ void *run_actor(void *pthread_input) {
   EpollInfo *epoll_info = epoll_info_init(name);
 
   Queue *input_queue = actor_info->input_queue;
-  Queue *output_queue = actor_info->output_queue;
   int event_fd = queue_add_event_fd(input_queue);
   
   add_input_epoll_event(epoll_info, event_fd, input_queue);
@@ -83,28 +103,8 @@ void *run_actor(void *pthread_input) {
   while (1) {
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
     CHECK(ready_amount == -1, "Failed to wait on epoll");
-    
-    for (int i = 0 ; i < ready_amount ; i++) {
-      eventfd_t num_to_read;
-      int r = eventfd_read(event_fd, &num_to_read);
-      CHECK(r != 0, "Failed to read event file descriptor");
 
-      for (eventfd_t j = 0 ; j < num_to_read ; j++) {
-	RequestContext *request_context;
-	enum QueueResult result = queue_pop(input_queue, &request_context);
-	CHECK(result != QUEUE_SUCCESS, "Did not successfully read message");
-
-	/* process the actor request and generate a response. */
-	request_set_actor_start(&request_context->time_stats);
-
-	handle_request(actor_info, request_context);
-
-	request_set_actor_end(&request_context->time_stats);
-	
-	result = queue_push(output_queue, request_context);
-	CHECK(result != QUEUE_SUCCESS, "Failed to send request context back");
-      }
-    }
+    process_epoll_event(actor_info);
   }
   
   return NULL;

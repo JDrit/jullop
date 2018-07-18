@@ -20,8 +20,12 @@ void *send_messages(void *data) {
 
   for (int i = 0 ; i < MESSAGE_COUNT ; i++) {
     RequestContext *request_context = init_request_context(i, "hostname");
-    sleep(1);
-    queue_push(queue, request_context);
+    enum QueueResult result = queue_push(queue, request_context);
+    if (result == QUEUE_FAILURE) {
+      LOG_INFO("waiting... %zu", queue_size(queue));
+      sleep(1);
+    }
+      
   }
 
   return NULL;
@@ -40,6 +44,7 @@ void *recv_messages(void *data) {
   while (count < MESSAGE_COUNT) {
 
     struct epoll_event events[MAX_EVENTS];
+    sleep(5);
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
     CHECK(ready_amount == -1, "Epoll wait failed");
 
@@ -64,7 +69,7 @@ void *recv_messages(void *data) {
 }
 
 int main() {
-  Queue *queue = queue_init(1024);
+  Queue *queue = queue_init(200);
   
   pthread_t recv_thread;
   int r = pthread_create(&recv_thread, NULL, recv_messages, queue);

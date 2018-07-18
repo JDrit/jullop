@@ -364,14 +364,12 @@ void handle_client_op(EpollInfo *epoll_info, Server *server, IoContext *io_conte
 void handle_actor_op(EpollInfo *epoll_info, Server *server, IoContext *io_context) {
   ActorContext *actor_context = io_context->context.actor_context;
 
-  eventfd_t num_to_read;
-  int r = eventfd_read(actor_context->fd, &num_to_read);
-  CHECK(r != 0, "Failed to read events: %d", r);
-
-  /* there might be multiple messages to read so process them all */
-  for (eventfd_t i = 0 ; i < num_to_read ; i ++) {
+  while (1) {
     RequestContext *request_context;
     enum QueueResult queue_result = queue_pop(actor_context->queue, &request_context);
+    if (queue_result == QUEUE_FAILURE) {
+      return;
+    }
 
     from_actor++;
     switch (queue_result) {

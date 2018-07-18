@@ -54,7 +54,7 @@ void create_actor(Server *server, int id, ActorInfo *actor) {
   actor->id = id;
   actor->startup = &server->startup;
 
-  uint16_t queue_size = 1024;
+  uint16_t queue_size = 5120;
   actor->input_queue = queue_init(queue_size);
   actor->output_queue = queue_init(queue_size);
 

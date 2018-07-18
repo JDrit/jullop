@@ -102,7 +102,7 @@ int context_keep_alive(RequestContext *context) {
 }
 
 void context_print_finish(RequestContext *context, enum RequestResult result) {  
-  LOG_INFO("Request Stats : result=%s fd=%d remote_host=%s actor=%d "
+  LOG_DEBUG("Request Stats : result=%s fd=%d remote_host=%s actor=%d "
 	   "bytes_read=%zu bytes_written=%zu",
 	   request_result_name(result),
 	   context->fd,
@@ -110,8 +110,8 @@ void context_print_finish(RequestContext *context, enum RequestResult result) {
 	   context->actor_id,
 	   context->input_offset,
 	   context->output_offset);
-  LOG_INFO("Time Stats    : total_micros=%ld client_read_micros=%ld "
-	   "actor_micros=%ld client_write_micros=%ld mailbox_micros=%ld",
+  LOG_DEBUG("Time Stats    : total_micros=%ld client_read_micros=%ld "
+	   "actor_micros=%ld client_write_micros=%ld queue_micros=%ld",
 	   request_get_total_time(&context->time_stats),
 	   request_get_client_read_time(&context->time_stats),
 	   request_get_actor_time(&context->time_stats),
@@ -120,7 +120,7 @@ void context_print_finish(RequestContext *context, enum RequestResult result) {
 }
 
 void context_finalize_reset(RequestContext *context, enum RequestResult result) {
-  //context_print_finish(context, result);
+  context_print_finish(context, result);
 
   context->actor_id = -1;
   
@@ -144,7 +144,7 @@ void context_finalize_reset(RequestContext *context, enum RequestResult result) 
 }
 
 void context_finalize_destroy(RequestContext *context, enum RequestResult result) {
-  //context_print_finish(context, result);
+  context_print_finish(context, result);
 
   // free allocated memory for the request
   free(context->input_buffer);
