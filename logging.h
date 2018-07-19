@@ -13,6 +13,8 @@
 #define ERROR_COLOR "\x1b[31m"
 #define FATAL_COLOR "\x1b[1;31m"
 
+#define LIKELY(x)   __builtin_expect(!!(x), 1)
+#define UNLIKELY(x) __builtin_expect(!!(x), 0)
 
 // Check if the given error condition is due to
 // blocking IO
@@ -50,38 +52,30 @@
 
 #define LOG_FATAL(M, ...) ERR_LOG("FATAL", FATAL_COLOR, M, ##__VA_ARGS__);
 
-#define CHECK(A, M, ...) \
-  if((A)) {				    \
+#define CHECK(A, M, ...)		    \
+  if(UNLIKELY((A))) {			    \
     LOG_FATAL(M, ##__VA_ARGS__);	    \
     exit(EXIT_FAILURE);			    \
   }
 
 #define FAIL(M, ...) CHECK(1, M, ##__VA_ARGS__);
 
-#define CHECK_MEM(x) ({				\
-      void* ret_val = x;				\
-      if (ret_val == NULL) {			\
-	LOG_FATAL("Out of Memory");		\
-	exit(EXIT_FAILURE);			\
-      }						\
-      ret_val;					\
+#define CHECK_MEM(x) ({			        \
+  void* ret_val = x;	                        \
+  if (UNLIKELY(ret_val == NULL)) {              \
+    LOG_FATAL("Out of Memory");			\
+    exit(EXIT_FAILURE);				\
+  }						\
+  ret_val;					\
 })
 
 #ifdef DEBUG
 
 #define LOG_DEBUG(M, ...) LOG("DEBUG", DEBUG_COLOR, M, ##__VA_ARGS__);
 
-#define CHECK_DEBUG(A, M, ...) \
-  if(!(A)) {			     \
-    LOG_FATAL(M, ##__VA_ARGS__);     \
-    exit(EXIT_FAILURE);		     \
-  }
-
 #else
 
 #define LOG_DEBUG(M, ...)
-
-#define CHECK_DEBUG(A, M, ...)
 
 #endif
 

@@ -11,6 +11,7 @@
 #include "logging.h"
 #include "request_context.h"
 #include "server.h"
+#include "time_stats.h"
 
 #define BUF_SIZE 2048
 
@@ -61,6 +62,7 @@ RequestContext *init_request_context(int fd, char* host_name) {
   context->input_len = BUF_SIZE;
   context->http_request.num_headers = NUM_HEADERS;
   context->state = CLIENT_READ;
+  request_clear_time(&context->time_stats);
   return context;
 }
 
@@ -112,11 +114,11 @@ void context_print_finish(RequestContext *context, enum RequestResult result) {
 	   context->output_offset);
   LOG_DEBUG("Time Stats    : total_micros=%ld client_read_micros=%ld "
 	   "actor_micros=%ld client_write_micros=%ld queue_micros=%ld",
-	   request_get_total_time(&context->time_stats),
-	   request_get_client_read_time(&context->time_stats),
-	   request_get_actor_time(&context->time_stats),
-	   request_get_client_write_time(&context->time_stats),
-	   request_get_queue_time(&context->time_stats));
+	    request_get_time(&context->time_stats, TOTAL_TIME),
+	    request_get_time(&context->time_stats, CLIENT_READ_TIME),
+	    request_get_time(&context->time_stats, ACTOR_TIME),
+	    request_get_time(&context->time_stats, CLIENT_WRITE_TIME),
+	    request_get_time(&context->time_stats, QUEUE_TIME));
 }
 
 void context_finalize_reset(RequestContext *context, enum RequestResult result) {
@@ -139,8 +141,7 @@ void context_finalize_reset(RequestContext *context, enum RequestResult result) 
   context->flags = 0;
 
   context->state = CLIENT_READ;
-
-  memset(&context->time_stats, 0, sizeof(TimeStats));
+  request_clear_time(&context->time_stats);
 }
 
 void context_finalize_destroy(RequestContext *context, enum RequestResult result) {

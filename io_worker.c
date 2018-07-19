@@ -107,7 +107,7 @@ static void close_client_connection(EpollInfo *epoll_info,
   epoll_info->stats.bytes_read += context_bytes_read(request_context);
 
   // log the timestamp at which the request is done
-  request_set_end(&request_context->time_stats);
+  request_record_end(&request_context->time_stats, TOTAL_TIME);
     
   delete_epoll_event(epoll_info, request_context->fd);
 
@@ -130,12 +130,12 @@ static void reset_client_connection(EpollInfo *epoll_info,
   epoll_info->stats.bytes_read += context_bytes_read(request_context);
 
   // log the timestamp at which the request is done
-  request_set_end(&request_context->time_stats);
-
+  request_record_end(&request_context->time_stats, TOTAL_TIME);
+  
   // finishes up the request
   context_finalize_reset(request_context, result);
 
-  request_set_start(&request_context->time_stats);
+  request_record_start(&request_context->time_stats, TOTAL_TIME);
 
   mod_input_epoll_event(epoll_info, request_context->fd, io_context);
 }
@@ -213,7 +213,7 @@ void handle_accept_op(EpollInfo *epoll_info, int accept_fd) {
     epoll_info->stats.active_connections++;
 
     RequestContext *request_context = init_request_context(conn_sock, hbuf);
-    request_set_start(&request_context->time_stats);
+    request_record_start(&request_context->time_stats, TOTAL_TIME);
     
     IoContext *io_context = init_client_io_context(request_context);
     add_input_epoll_event(epoll_info, request_context->fd, io_context);
@@ -268,10 +268,9 @@ static void read_client_request(EpollInfo *epoll_info,
 				Server *server,
 				IoContext *io_context) {
   RequestContext *request_context = io_context->context.request_context;
-
-  request_set_client_read_start(&request_context->time_stats);
-  enum ReadState state = try_parse_http_request(request_context);  
-  request_set_client_read_end(&request_context->time_stats);
+  request_record_start(&request_context->time_stats, CLIENT_READ_TIME);
+  enum ReadState state = try_parse_http_request(request_context);
+  request_record_end(&request_context->time_stats, CLIENT_READ_TIME);
 
   switch (state) {
   case READ_FINISH: {
@@ -317,12 +316,12 @@ static void read_client_request(EpollInfo *epoll_info,
 static void write_client_response(EpollInfo *epoll_info, IoContext *io_context) {
   RequestContext *request_context = io_context->context.request_context;
   
-  request_set_client_write_start(&request_context->time_stats);
+  request_record_start(&request_context->time_stats, CLIENT_WRITE_TIME);
   enum WriteState state = write_async(request_context->fd,
 				      request_context->output_buffer,
 				      request_context->output_len,
 				      &request_context->output_offset);
-  request_set_client_write_end(&request_context->time_stats);
+  request_record_end(&request_context->time_stats, CLIENT_WRITE_TIME);
   
   switch (state) {
   case WRITE_BUSY:
@@ -361,22 +360,29 @@ void handle_client_op(EpollInfo *epoll_info, Server *server, IoContext *io_conte
   }
 }
 
-void handle_actor_op(EpollInfo *epoll_info, Server *server, IoContext *io_context) {
-  ActorContext *actor_context = io_context->context.actor_context;
+/**
+ * Attempts to read from the actor's event file descriptor to see how many
+ * request contexts are ready to be pulled off the queue. It then pulls that
+ * many off and attaches them =to the epoll loop for client writes.
+ *
+ * Returns 0 on success and -1 on error.
+ */
+int read_queue_item(EpollInfo *epoll_info, Server *server, ActorContext *actor_context) {
+  eventfd_t num_to_read;  
+  int r = eventfd_read(actor_context->fd, &num_to_read);
+  if (r == -1) {
+    return -1;
+  }
 
-  while (1) {
+  for (eventfd_t i = 0 ; i < num_to_read ; i++) {
     RequestContext *request_context;
     enum QueueResult queue_result = queue_pop(actor_context->queue, &request_context);
     if (queue_result == QUEUE_FAILURE) {
-      return;
-    }
-
-    from_actor++;
-    switch (queue_result) {
-    case QUEUE_FAILURE:
-      FAIL("Failed to read request from actor");
-      break;
-    case QUEUE_SUCCESS:
+      LOG_WARN("Failed to dequeue a request context");
+      return -1;
+    } else {
+      from_actor++;
+      
       /* All that is left is to send the response back to the client. */
       request_context->state = CLIENT_WRITE;
       
@@ -384,6 +390,17 @@ void handle_actor_op(EpollInfo *epoll_info, Server *server, IoContext *io_contex
        * response back to the client. */
       IoContext *client_output = init_client_io_context(request_context);
       add_output_epoll_event(epoll_info, request_context->fd, client_output);      
+    }
+  }
+  return 0;
+}
+
+void handle_actor_op(EpollInfo *epoll_info, Server *server, IoContext *io_context) {
+  ActorContext *actor_context = io_context->context.actor_context;
+
+  while (1) {
+    if (read_queue_item(epoll_info, server, actor_context) == -1) {
+      return;
     }
   }
 }

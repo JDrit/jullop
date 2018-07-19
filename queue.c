@@ -77,7 +77,7 @@ enum QueueResult queue_push(Queue *queue, RequestContext *request_context) {
 
   if (((tail - (head + 1)) & queue->mask) >= 1) {
     /* Starts tracking the time spent in the queue for this request. */
-    request_set_queue_start(&request_context->time_stats);
+    request_record_start(&request_context->time_stats, QUEUE_TIME);
 
     queue->ring_buffer[head & queue->mask] = request_context;
     atomic_store(&queue->head, head + 1);
@@ -100,7 +100,7 @@ enum QueueResult queue_pop(Queue *queue, RequestContext **request_context) {
     *request_context = queue->ring_buffer[tail & queue->mask];
 
     /* Finishes tracking the time spent in the queue for this request. */
-    request_set_queue_end(&(*request_context)->time_stats);
+    request_record_end(&(*request_context)->time_stats, QUEUE_TIME);
     
     atomic_store(&queue->tail, tail + 1);
     return QUEUE_SUCCESS;

@@ -72,11 +72,11 @@ void process_epoll_event(ActorInfo *actor_info) {
     }
       
     /* process the actor request and generate a response. */
-    request_set_actor_start(&request_context->time_stats);
+    request_record_start(&request_context->time_stats, ACTOR_TIME);
     
     handle_request(actor_info, request_context);
-    
-    request_set_actor_end(&request_context->time_stats);
+
+    request_record_end(&request_context->time_stats, ACTOR_TIME);
       
     result = queue_push(actor_info->output_queue, request_context);
     CHECK(result != QUEUE_SUCCESS, "Failed to send request context back");
