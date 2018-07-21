@@ -19,15 +19,18 @@ void *send_messages(void *data) {
   Queue *queue = (Queue*) data;
 
   for (int i = 0 ; i < MESSAGE_COUNT ; i++) {
-    RequestContext *request_context = init_request_context(i, "hostname");
-    enum QueueResult result = queue_push(queue, request_context);
-    if (result == QUEUE_FAILURE) {
-      LOG_INFO("waiting... %zu", queue_size(queue));
-      sleep(1);
-    }
-      
+    while (1) {
+      RequestContext *request_context = init_request_context(i, "hostname");
+      enum QueueResult result = queue_push(queue, request_context);
+      if (result == QUEUE_FAILURE) {
+	LOG_INFO("waiting... %zu", queue_size(queue));
+	sleep(1);
+      } else {
+	break;
+      }
+    }    
   }
-
+  LOG_INFO("Send thread finished");
   return NULL;
 }
 
@@ -40,36 +43,34 @@ void *recv_messages(void *data) {
   add_input_epoll_event(epoll_info, fd, queue);
 
   int count = 0;
-
+  struct epoll_event events[MAX_EVENTS];
+    
   while (count < MESSAGE_COUNT) {
-
-    struct epoll_event events[MAX_EVENTS];
-    sleep(5);
+    sleep(1);
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
     CHECK(ready_amount == -1, "Epoll wait failed");
 
-    for (int i = 0 ; i < ready_amount ; i++) {
-      eventfd_t num_to_read;
-      int r = eventfd_read(fd, &num_to_read);
-      CHECK(r != 0, "Failed to read event file descriptor");
-      LOG_INFO("num ready: %lu", num_to_read);
+    eventfd_t num_to_read;
+    int r = eventfd_read(fd, &num_to_read);
+    CHECK(r != 0, "Failed to read event file descriptor");
+    LOG_INFO("num ready: %lu", num_to_read);
 
-      for (uint64_t j = 0 ; j < num_to_read ; j++) {
-	RequestContext *request_context;
-	enum QueueResult result = queue_pop(queue, &request_context);
-	CHECK(result != QUEUE_SUCCESS, "Did not successfully read message");
-	LOG_INFO("received message: %d", request_context->fd);
-	count++;
-      }
+    count += num_to_read;
+    for (uint64_t j = 0 ; j < num_to_read ; j++) {
+      RequestContext *request_context;
+      enum QueueResult result = queue_pop(queue, &request_context);
+      CHECK(result != QUEUE_SUCCESS, "Did not successfully read message");
+      LOG_INFO("received message: %d", request_context->fd);
     }
+    LOG_INFO("total: %d", count);
   }
   epoll_info_destroy(epoll_info);
-  
+  LOG_INFO("Recieve thread finished.");
   return NULL;
 }
 
 int main() {
-  Queue *queue = queue_init(200);
+  Queue *queue = queue_init(10);
   
   pthread_t recv_thread;
   int r = pthread_create(&recv_thread, NULL, recv_messages, queue);
@@ -89,6 +90,9 @@ int main() {
 
   void *ptr;
   r = pthread_join(recv_thread, (void**) &ptr);
+  CHECK(r != 0, "Failed to join on thread");
+
+  r = pthread_join(send_thread, (void**) &ptr);
   CHECK(r != 0, "Failed to join on thread");
 
   queue_destroy(queue);

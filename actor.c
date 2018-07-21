@@ -65,9 +65,8 @@ static void handle_request(ActorInfo *actor_info, RequestContext *request_contex
 void process_epoll_event(ActorInfo *actor_info) {
 
   while (1) {
-    RequestContext *request_context;
-    enum QueueResult result = queue_pop(actor_info->input_queue, &request_context);
-    if (result == QUEUE_FAILURE) {
+    RequestContext *request_context  = queue_pop(actor_info->input_queue);
+    if (request_context == NULL) {
       return;
     }
       
@@ -78,7 +77,7 @@ void process_epoll_event(ActorInfo *actor_info) {
 
     request_record_end(&request_context->time_stats, ACTOR_TIME);
       
-    result = queue_push(actor_info->output_queue, request_context);
+    enum QueueResult result = queue_push(actor_info->output_queue, request_context);
     CHECK(result != QUEUE_SUCCESS, "Failed to send request context back");
   }
 }

@@ -375,9 +375,8 @@ int read_queue_item(EpollInfo *epoll_info, Server *server, ActorContext *actor_c
   }
 
   for (eventfd_t i = 0 ; i < num_to_read ; i++) {
-    RequestContext *request_context;
-    enum QueueResult queue_result = queue_pop(actor_context->queue, &request_context);
-    if (queue_result == QUEUE_FAILURE) {
+    RequestContext *request_context = queue_pop(actor_context->queue);
+    if (request_context == NULL) {
       LOG_WARN("Failed to dequeue a request context");
       return -1;
     } else {

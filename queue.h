@@ -21,27 +21,7 @@ enum QueueResult {
   QUEUE_FAILURE = 1,
 };
 
-typedef struct Queue {
-  /* the max amount of elements allowed in the mailbox. */
-  size_t max_size;
-  size_t mask;
-
-  /* the offset into the ring buffer that items should be added to. */
-  _Atomic size_t head;
-
-  /* the offset info the ring buffer that items should be removed from. */
-  _Atomic size_t tail;
-  
-  /* the internal buffer used to store the messages. This should never be 
-   * accessed by any external caller. By using a ring buffer, we prevent
-   * any memory allocations being required during the request. */
-  RequestContext **ring_buffer;
-
-  /* the event file descriptor used to detect when a new message was added
-   * to the mailbox. */
-  int add_event;
-  
-} Queue;
+typedef struct Queue Queue;
 
 const char *queue_result_name(enum QueueResult result);
 
@@ -80,13 +60,9 @@ int queue_add_event_fd(Queue *queue);
 enum QueueResult queue_push(Queue *queue, RequestContext *request_context);
 
 /**
- * Tries to read a new message from the queue. This will return a failure result
- * if the queue is empty.
- *
- * If a successful status code is returned, then the data pointer is modified to
- * point to the new payload. The caller thread now has full ownership of the
- * payload and is responsible for freeing any memory involved.
+ * Tries to read a new message from the queue. It returns the next request
+ * context to use. Null is returned if the queue is empty.
  */
-enum QueueResult queue_pop(Queue *queue, RequestContext **request_context);
+RequestContext *queue_pop(Queue *queue);
 
 #endif
