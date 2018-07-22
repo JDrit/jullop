@@ -21,6 +21,9 @@ typedef struct OutputBuffer {
   /* stores the offset when writing into this buffer. */
   size_t write_into_offset;
 
+  /* the number of times the buffer was resized. */
+  size_t resize_count;
+
 } OutputBuffer;
 
 /**
@@ -51,6 +54,7 @@ enum WriteState output_buffer_write_to(OutputBuffer *buffer, int fd);
  * output buffer, extending the underlying data structure if needed
  * along the way.
  */
-void output_buffer_append(OutputBuffer *buffer, const char *fmt, ...);
+void output_buffer_append(OutputBuffer *buffer, const char *fmt, ...)
+  __attribute__ ((format (printf, 2, 3)));
 
 #endif

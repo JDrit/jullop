@@ -31,19 +31,49 @@ START_TEST(output_buffer_write_to_vargs) {
   output_buffer_destroy(buffer);
 } END_TEST
 
-START_TEST(output_buffer_write_to_resize) {
+START_TEST(output_buffer_resize) {
   errno = 0;
   OutputBuffer *buffer = output_buffer_init(2);
 
-  output_buffer_append(buffer, "testing %d %d %d", 5, 6, 7);
-  ck_assert_str_eq(buffer->buffer, "testing 5 6 7");
+  output_buffer_append(buffer, "testing");
+  ck_assert_str_eq(buffer->buffer, "testing");
+  ck_assert_int_eq(buffer->resize_count, 1);
+
+  output_buffer_append(buffer, " happy happy");
+  ck_assert_str_eq(buffer->buffer, "testing happy happy");
+
+  output_buffer_append(buffer, " this is a test of the emergency broadcast message");
+  ck_assert_str_eq(buffer->buffer,
+		   "testing happy happy this is a test of the emergency broadcast message");
+  ck_assert_int_eq(buffer->resize_count, 3);
+    
+  output_buffer_destroy(buffer);
+} END_TEST
+
+START_TEST(output_buffer_resize_vargs) {
+  errno = 0;
+  OutputBuffer *buffer = output_buffer_init(2);
+
+  output_buffer_append(buffer, "testing %d", 5);
+  ck_assert_str_eq(buffer->buffer, "testing 5");
+  ck_assert_int_eq(buffer->resize_count, 1);
   
   output_buffer_destroy(buffer);
 } END_TEST
 
 START_TEST(output_buffer_reuse) {
+  errno = 0;
+  OutputBuffer *buffer = output_buffer_init(102);
 
-} END_TEST;
+  output_buffer_append(buffer, "testing 1 2 3 4 5 6 7 8");
+  output_buffer_reset(buffer);
+  ck_assert_int_eq(buffer->write_into_offset, 0);
+
+  output_buffer_append(buffer, "fake fake");
+  ck_assert(strncmp(buffer->buffer, "fake fake", strlen("fake fake")) == 0);
+  
+  output_buffer_destroy(buffer);
+} END_TEST
 
 Suite *output_buffer_suite(void) {
   Suite *suite = suite_create("output buffer");
@@ -51,7 +81,8 @@ Suite *output_buffer_suite(void) {
 
   tcase_add_test(tc_core, output_buffer_write_to_buffer);
   tcase_add_test(tc_core, output_buffer_write_to_vargs);
-  tcase_add_test(tc_core, output_buffer_write_to_resize);
+  tcase_add_test(tc_core, output_buffer_resize);
+  tcase_add_test(tc_core, output_buffer_resize_vargs);
   tcase_add_test(tc_core, output_buffer_reuse);
 
   suite_add_tcase(suite, tc_core);

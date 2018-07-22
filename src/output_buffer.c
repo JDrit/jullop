@@ -9,13 +9,19 @@
 
 /** 
  * Checks to see if the buffer needs to be resized and does so accordingly.
- * It resizes by pow(n, 2).
+ * The new size is either min_size or pow(size, 2), whichever is larger.
  */
-static inline void resize(OutputBuffer *buffer) {
-  if (buffer->write_into_offset == buffer->length) {
-    buffer->length <<= 1;
-    buffer->buffer = (char*) CHECK_MEM(realloc(buffer->buffer, buffer->length));
+static inline void resize(OutputBuffer *buffer, size_t min_size) {
+  size_t new_size;
+
+  if ((buffer-> length << 1) > min_size) {
+    new_size = buffer->length << 1;
+  } else {
+    new_size = min_size;
   }
+  buffer->length = new_size;
+  buffer->buffer = (char*) CHECK_MEM(realloc(buffer->buffer, buffer->length));
+  buffer->resize_count++;
 }
 
 
@@ -25,6 +31,7 @@ OutputBuffer *output_buffer_init(size_t size) {
   buffer->length = size;
   buffer->write_from_offset = 0;
   buffer->write_into_offset = 0;
+  buffer->resize_count = 0;
   return buffer;
 }
 
@@ -63,18 +70,21 @@ enum WriteState output_buffer_write_to(OutputBuffer *buffer, int fd) {
 
 void output_buffer_append(OutputBuffer *buffer, const char *fmt, ...) {
   va_list args;
-  va_start (args, fmt);
 
   while (1) {
+    va_start(args, fmt);
+    
     char *start_addr = buffer->buffer + buffer->write_into_offset;
     size_t max_to_write = buffer->length - buffer->write_into_offset;
     int written = vsnprintf(start_addr, max_to_write, fmt, args);
-    
-    if (max_to_write == (size_t) written) {
-      resize(buffer);
+    CHECK(written < 0, "Failed to construct output buffer");
+
+    if ((size_t) written > max_to_write) {
+      resize(buffer, buffer->write_into_offset + ((size_t) written) + 1);
     } else {
       buffer->write_into_offset += (size_t) written;
       break;
     }
+    va_end(args);
   }
 }
