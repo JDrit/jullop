@@ -15,14 +15,16 @@
 #include <unistd.h>
 
 #include "epoll_info.h"
+#include "input_buffer.h"
 #include "io_worker.h"
 #include "logging.h"
 #include "message_passing.h"
+#include "output_buffer.h"
 #include "queue.h"
 #include "request_context.h"
 #include "time_stats.h"
 
-#define MAX_EVENTS 250
+#define MAX_EVENTS 750
 
 typedef struct ActorContext {
   /* the id of the actor. */
@@ -79,7 +81,6 @@ static void print_stats(Server *server, EpollInfo *epoll_info) {
 	     epoll_info->stats.total_requests_processed,
 	     epoll_info->stats.active_connections);    
     LOG_INFO("Actor: input: %lu output: %lu", input_size, output_size);
-    epoll_info_print(epoll_info);
   }
   
 }
@@ -226,11 +227,9 @@ void handle_accept_op(EpollInfo *epoll_info, int accept_fd) {
  * been successfully parsed.
  */
 static enum ReadState try_parse_http_request(RequestContext *request_context) {
-  size_t prev_len = request_context->input_offset;
-  enum ReadState read_state = read_async(request_context->fd,
-					 request_context->input_buffer,
-					 request_context->input_len,
-					 &request_context->input_offset);
+  size_t prev_len = request_context->input_buffer->offset;
+  enum ReadState read_state = input_buffer_read_into(request_context->input_buffer,
+						     request_context->fd);
 
   switch (read_state) {
   case READ_ERROR:
@@ -239,7 +238,6 @@ static enum ReadState try_parse_http_request(RequestContext *request_context) {
   case READ_FINISH:
   case READ_BUSY: {
     enum ParseState parse_state = http_request_parse(request_context->input_buffer,
-						     request_context->input_offset,
 						     prev_len,
 						     &request_context->http_request);
     switch (parse_state) {
@@ -317,10 +315,8 @@ static void write_client_response(EpollInfo *epoll_info, IoContext *io_context) 
   RequestContext *request_context = io_context->context.request_context;
   
   request_record_start(&request_context->time_stats, CLIENT_WRITE_TIME);
-  enum WriteState state = write_async(request_context->fd,
-				      request_context->output_buffer,
-				      request_context->output_len,
-				      &request_context->output_offset);
+  enum WriteState state = output_buffer_write_to(request_context->output_buffer,
+						 request_context->fd);
   request_record_end(&request_context->time_stats, CLIENT_WRITE_TIME);
   
   switch (state) {

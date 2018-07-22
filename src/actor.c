@@ -54,31 +54,36 @@ static void handle_request(ActorInfo *actor_info, RequestContext *request_contex
       headers[1].value_len = 5;
     }
 
-    HttpResponse http_response;
-    http_response_init(&http_response, 200, headers, header_count, http_request.path,
+    http_response_init(request_context->output_buffer, 200, headers,
+		       header_count, http_request.path,
 		       http_request.path_len);
-
-    request_context->output_buffer = http_response.output;
-    request_context->output_len = http_response.output_len;
 }
 
 void process_epoll_event(ActorInfo *actor_info) {
-
   while (1) {
-    RequestContext *request_context  = queue_pop(actor_info->input_queue);
-    if (request_context == NULL) {
+    eventfd_t num_to_read;
+    int r = eventfd_read(queue_add_event_fd(actor_info->input_queue), &num_to_read);
+    
+    if (r == -1 || num_to_read == 0) {
       return;
     }
-      
-    /* process the actor request and generate a response. */
-    request_record_start(&request_context->time_stats, ACTOR_TIME);
     
-    handle_request(actor_info, request_context);
-
-    request_record_end(&request_context->time_stats, ACTOR_TIME);
+    for (eventfd_t i = 0 ;  i < num_to_read ; i++) {
+      RequestContext *request_context  = queue_pop(actor_info->input_queue);
+      if (request_context == NULL) {
+	return;
+      }
       
-    enum QueueResult result = queue_push(actor_info->output_queue, request_context);
-    CHECK(result != QUEUE_SUCCESS, "Failed to send request context back");
+      /* process the actor request and generate a response. */
+      request_record_start(&request_context->time_stats, ACTOR_TIME);
+      
+      handle_request(actor_info, request_context);
+      
+      request_record_end(&request_context->time_stats, ACTOR_TIME);
+      
+      enum QueueResult result = queue_push(actor_info->output_queue, request_context);
+      CHECK(result != QUEUE_SUCCESS, "Failed to send request context back");
+    }
   }
 }
 

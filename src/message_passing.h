@@ -15,18 +15,6 @@
  * payload again to prevent against race conditions.
  */
 
-enum ReadState {
-  READ_FINISH,
-  READ_BUSY,
-  READ_ERROR,
-  CLIENT_DISCONNECT
-};
-
-enum WriteState {
-  WRITE_FINISH,
-  WRITE_BUSY,
-  WRITE_ERROR
-};
 
 typedef struct Message {
   char buffer[sizeof(size_t)];

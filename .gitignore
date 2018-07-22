@@ -1,3 +1,4 @@
 *.o
 jullop
 *~
+build/

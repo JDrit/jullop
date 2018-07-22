@@ -2,7 +2,7 @@ CC=clang
 IGNORE_WARNINGS=-Wno-unused-parameter -Wno-unused-function
 CFLAGS=-std=gnu11 -c -g -O0 -Wall -Wextra -Wconversion \
 	-fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free \
-	-DLOCK_QUEUE \
+	-DDEBUG -DLOCK_QUEUE \
 	$(IGNORE_WARNINGS)
 LIBS=-lpthread -lprofiler -ltcmalloc
 

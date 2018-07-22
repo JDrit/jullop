@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "http_response.h"
+#include "output_buffer.h"
 #include "logging.h"
 
 #define STATUS_SIZE 12
@@ -82,7 +83,7 @@ static inline size_t int_size(int i) {
   return 10;
 }
 
-void http_response_init(HttpResponse *http_response, int status_code,
+void http_response_init(OutputBuffer *buffer, int status_code,
 			HttpHeader headers[10], size_t header_count,
 			const char *body, size_t body_len) {
 
@@ -97,8 +98,9 @@ void http_response_init(HttpResponse *http_response, int status_code,
 
   size_t total_size = status_size + header_size + BREAK_SIZE + body_len;
   char *output = (char*) CHECK_MEM(calloc(total_size, sizeof(total_size)));
-  
 
+  output_buffer_append(buffer, "HTTP/1.1 %d %s\r\n", status_code, reason_phrase);
+  
   int offset = 0;
   offset += sprintf(output, "HTTP/1.1 %d %s\r\n", status_code, reason_phrase);
 
@@ -106,11 +108,13 @@ void http_response_init(HttpResponse *http_response, int status_code,
     offset += sprintf(output + offset, "%.*s: %.*s\r\n",
 		      (int) headers[i].name_len, headers[i].name,
 		      (int) headers[i].value_len, headers[i].value);
+
+    output_buffer_append(buffer, "%.*s: %.*s\r\n",
+			 (int) headers[i].name_len, headers[i].name,
+			 (int) headers[i].value_len, headers[i].value);
+
   }
 
   offset += sprintf(output + offset, "\r\n%.*s", (int) body_len, body);
-
-  http_response->output = output;
-  http_response->output_len = (size_t) offset;
-
+  output_buffer_append(buffer, "\r\n%.*s", (int) body_len, body);
 }

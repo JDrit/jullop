@@ -1,6 +1,7 @@
 #ifndef __http_request_h__
 #define __http_request_h__
 
+#include "input_buffer.h"
 #include "picohttpparser.h"
 
 #define NUM_HEADERS 100
@@ -29,8 +30,8 @@ enum ParseState {
  * Tries to parse out an HTTP request from the given buffer.
  *  Returns a enumeration detailing if there is more work to do or not.
  */
-enum ParseState http_request_parse(char* buffer, size_t buf_len,
-				   size_t prev_len, HttpRequest *request);
+enum ParseState http_request_parse(InputBuffer *buffer, size_t prev_len,
+				   HttpRequest *request);
 
 void http_request_print(HttpRequest *request);
 

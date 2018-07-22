@@ -4,6 +4,8 @@
 #include <stdint.h>
 
 #include "http_request.h"
+#include "input_buffer.h"
+#include "output_buffer.h"
 #include "time_stats.h"
 
 enum RequestResult {
@@ -33,27 +35,15 @@ typedef struct RequestContext {
   /* the actor that processed the request */
   int actor_id;
 
-  /* input buffer from the client */
-  char *input_buffer;
-  /* the total size that can be read from the client */
-  size_t input_len;
-  /* how much has been read from the client so far */
-  size_t input_offset;
+  /* used to store the data read in from the client */
+  InputBuffer *input_buffer;
 
   /* the parsed HTTP request for this request */
   HttpRequest http_request;
 
-  /* points to the data that will be written out as the response to
-   * the client */
-  char *output_buffer;
-  /* indicates how long the total response buffer is */
-  size_t output_len;
-  /* indicates how much data has already been written out to 
-   * the client */
-  size_t output_offset;
+  /* used to store the response that will be sent out to the client */
+  OutputBuffer *output_buffer;
   
-  uint8_t flags;
-
   enum RequestState state;
 
   /* used to store the time spent on the request */

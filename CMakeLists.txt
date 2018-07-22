@@ -1,0 +1,6 @@
+cmake_minimum_required (VERSION 2.8.11)
+project (Jullop)
+enable_testing()
+set (CMAKE_C_COMPILER "/usr/bin/clang")
+add_subdirectory (src)
+add_subdirectory (tests)

@@ -78,7 +78,7 @@ void create_actor(Server *server, int id, ActorInfo *actor) {
   CHECK(r != 0, "Failed to set cpu infinity to %d", id);
 }
 
-pthread_t create_input_actor(int id, int sock_fd, Server *server) {
+pthread_t create_io_worker(int id, int sock_fd, Server *server) {
   IoWorkerArgs *args = (IoWorkerArgs*) CHECK_MEM(calloc(1, sizeof(IoWorkerArgs)));
   args->id = id;
   args->sock_fd = sock_fd;
@@ -123,14 +123,14 @@ int main(int argc, char* argv[]) {
     create_actor(&server, i, &server.app_actors[i]);
   }
 
-  pthread_t input_thread;
+  pthread_t io_thread;
   for (int i = 0 ; i < io_worker_count ; i++) {
     int sock_fd = create_socket(port, queue_length);
-    input_thread = create_input_actor(i, sock_fd, &server);
+    io_thread = create_io_worker(i, sock_fd, &server);
   }
   
   void *ptr;
-  r = pthread_join(input_thread, (void**) &ptr);
+  r = pthread_join(io_thread, (void**) &ptr);
   CHECK(r != 0, "Failed to join on thread");
 
   LOG_INFO("Exiting server");

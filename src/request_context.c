@@ -8,32 +8,15 @@
 #include <unistd.h>
 
 #include "http_request.h"
+#include "input_buffer.h"
 #include "logging.h"
+#include "output_buffer.h"
 #include "request_context.h"
 #include "server.h"
 #include "time_stats.h"
 
-#define BUF_SIZE 2048
+#define BUF_SIZE 1
 
-enum Flags {
-  HTTP_REQUEST_INITIALIZED = 1 << 0,
-  OUTPUT_BUFFER_SET = 1 << 1,
-  ACTOR_SET = 1 << 2,
-  HTTP_RESPONSE_INITIALIZED = 1 << 3,
-};
-
-/* returns 0 if flag is set, -1 otherwise */
-static int is_flag_set(RequestContext *context, enum Flags flag) {
-  if ((context->flags & flag) == 0) {
-    return -1;
-  } else {
-    return 0;
-  }
-}
-
-static void set_flag(RequestContext *context, enum Flags flag) {
-  context->flags |= flag;
-}
 
 inline static char* request_result_name(enum RequestResult result) {
   switch (result) {
@@ -58,8 +41,10 @@ RequestContext *init_request_context(int fd, char* host_name) {
   context->remote_host = host_name;
   context->fd = fd;
   context->actor_id = -1;
-  context->input_buffer = (char*) CHECK_MEM(calloc(BUF_SIZE, sizeof(char)));
-  context->input_len = BUF_SIZE;
+
+  context->input_buffer = input_buffer_init(BUF_SIZE);
+  context->output_buffer = output_buffer_init(BUF_SIZE);
+
   context->http_request.num_headers = NUM_HEADERS;
   context->state = CLIENT_READ;
   request_clear_time(&context->time_stats);
@@ -67,11 +52,11 @@ RequestContext *init_request_context(int fd, char* host_name) {
 }
 
 size_t context_bytes_read(RequestContext *context) {
-  return context->input_offset;
+  return context->input_buffer->offset;
 }
 
 size_t context_bytes_written(RequestContext *context) {
-  return context->output_offset;
+  return context->output_buffer->write_from_offset;
 }
 
 int context_keep_alive(RequestContext *context) {
@@ -106,12 +91,12 @@ int context_keep_alive(RequestContext *context) {
 void context_print_finish(RequestContext *context, enum RequestResult result) {  
   LOG_DEBUG("Request Stats : result=%s fd=%d remote_host=%s actor=%d "
 	   "bytes_read=%zu bytes_written=%zu",
-	   request_result_name(result),
-	   context->fd,
-	   context->remote_host,
-	   context->actor_id,
-	   context->input_offset,
-	   context->output_offset);
+	    request_result_name(result),
+	    context->fd,
+	    context->remote_host,
+	    context->actor_id,
+	    context->input_buffer->offset,
+	    context->output_buffer->write_into_offset);
   LOG_DEBUG("Time Stats    : total_micros=%ld client_read_micros=%ld "
 	   "actor_micros=%ld client_write_micros=%ld queue_micros=%ld",
 	    request_get_time(&context->time_stats, TOTAL_TIME),
@@ -127,19 +112,9 @@ void context_finalize_reset(RequestContext *context, enum RequestResult result) 
   context->actor_id = -1;
   
   // reset the input buffer
-  context->input_len = BUF_SIZE;
-  context->input_offset = 0;
-
-  if (context->output_buffer != NULL) {
-    free(context->output_buffer);
-    context->output_buffer = NULL;
-  }
+  input_buffer_reset(context->input_buffer);
+  output_buffer_reset(context->output_buffer);
   
-  // reset the output buffer
-  context->output_len = 0;
-  context->output_offset = 0;
-  context->flags = 0;
-
   context->state = CLIENT_READ;
   request_clear_time(&context->time_stats);
 }
@@ -148,15 +123,12 @@ void context_finalize_destroy(RequestContext *context, enum RequestResult result
   context_print_finish(context, result);
 
   // free allocated memory for the request
-  free(context->input_buffer);
+  input_buffer_destroy(context->input_buffer);
+  output_buffer_destroy(context->output_buffer);
 
   // free the buffer for the address of the remote hosr
   free(context->remote_host);
 
-  if (context->output_buffer != NULL) {
-    free(context->output_buffer);
-    context->output_buffer = NULL;
-  }
   int r = close(context->fd);
   CHECK(r != 0, "Failed to close client connection");
 

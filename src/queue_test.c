@@ -57,9 +57,8 @@ void *recv_messages(void *data) {
 
     count += num_to_read;
     for (uint64_t j = 0 ; j < num_to_read ; j++) {
-      RequestContext *request_context;
-      enum QueueResult result = queue_pop(queue, &request_context);
-      CHECK(result != QUEUE_SUCCESS, "Did not successfully read message");
+      RequestContext *request_context = queue_pop(queue);
+      CHECK(request_context == NULL, "Did not successfully read message");
       LOG_INFO("received message: %d", request_context->fd);
     }
     LOG_INFO("total: %d", count);
