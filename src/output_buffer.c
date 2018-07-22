@@ -46,11 +46,11 @@ void output_buffer_reset(OutputBuffer *buffer) {
 }
 
 enum WriteState output_buffer_write_to(OutputBuffer *buffer, int fd) {
-  while (buffer->write_from_offset < buffer->length) {
+  while (buffer->write_from_offset < buffer->write_into_offset) {
     void *start_addr = buffer->buffer + buffer->write_from_offset;
-    size_t num_to_write = buffer->length - buffer->write_from_offset;
+    size_t num_to_write = buffer->write_into_offset - buffer->write_from_offset;
     ssize_t bytes_written = write(fd, start_addr, num_to_write);
-    
+
     switch (bytes_written) {
     case -1:
       if (ERROR_BLOCK) {

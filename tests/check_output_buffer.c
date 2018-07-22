@@ -2,9 +2,25 @@
 
 #include <check.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 
+#include "../src/logging.h"
 #include "../src/output_buffer.h"
+
+static void create_sockets(int fds[2]) {
+  int r = socketpair(AF_LOCAL, SOCK_STREAM, 0, fds);
+  CHECK(r != 0, "Failed to create actor socket pair");
+
+  r = fcntl(fds[0], F_SETFL, O_NONBLOCK);
+  CHECK(r != 0, "Failed to set non-blocking");
+
+  r = fcntl(fds[1], F_SETFL, O_NONBLOCK);
+  CHECK(r != 0, "Failed to set non-blocking");
+}
 
 START_TEST(output_buffer_write_to_buffer) {
   errno = 0;
@@ -75,6 +91,44 @@ START_TEST(output_buffer_reuse) {
   output_buffer_destroy(buffer);
 } END_TEST
 
+START_TEST(output_buffer_write) {
+  errno = 0;
+  OutputBuffer *buffer = output_buffer_init(1024);
+
+  int fds[2];
+  create_sockets(fds);
+  int input = fds[0];
+  int output = fds[1];
+
+  enum WriteState state;
+
+  output_buffer_append(buffer, "writing to socket");
+  state = output_buffer_write_to(buffer, input);
+  ck_assert_int_eq(state, WRITE_FINISH);
+  ck_assert_int_eq(buffer->write_from_offset, 17);
+
+  output_buffer_append(buffer, " 1 2 3");
+  state = output_buffer_write_to(buffer, input);
+  ck_assert_int_eq(state, WRITE_FINISH);
+
+  state = output_buffer_write_to(buffer, input);
+  ck_assert_int_eq(state, WRITE_FINISH);
+    
+  char buf[256];
+  read(output, buf, 256);
+  ck_assert_str_eq(buf, "writing to socket 1 2 3");
+
+  output_buffer_append(buffer, "4 5 6");
+  state = output_buffer_write_to(buffer, input);
+  ck_assert_int_eq(state, WRITE_FINISH);
+
+  char buf2[256];
+  read(output, buf2, 256);
+  ck_assert(strncmp(buf2, "4 5 6", strlen("4 5 6")) == 0);
+
+  output_buffer_destroy(buffer);
+} END_TEST
+
 Suite *output_buffer_suite(void) {
   Suite *suite = suite_create("output buffer");
   TCase *tc_core = tcase_create("Core");
@@ -84,6 +138,7 @@ Suite *output_buffer_suite(void) {
   tcase_add_test(tc_core, output_buffer_resize);
   tcase_add_test(tc_core, output_buffer_resize_vargs);
   tcase_add_test(tc_core, output_buffer_reuse);
+  tcase_add_test(tc_core, output_buffer_write);
 
   suite_add_tcase(suite, tc_core);
   return suite;

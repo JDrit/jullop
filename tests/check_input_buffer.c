@@ -103,7 +103,7 @@ START_TEST(input_buffer_reuse) {
   ck_assert(strncmp(buffer->buffer, str2, strlen(str2)) == 0);
   ck_assert_int_eq(buffer->offset, strlen(str2));
 
-} END_TEST;
+} END_TEST
 
 Suite *input_buffer_suite(void) {
   Suite *suite = suite_create("input buffer");
