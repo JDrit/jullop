@@ -75,17 +75,44 @@ START_TEST(input_buffer_resize) {
   ck_assert(strncmp(buffer->buffer, str, strlen(str)) == 0);
   ck_assert_int_eq(buffer->offset, strlen(str));
   ck_assert_int_eq(buffer->length, 64);
+  ck_assert_int_eq(buffer->resize_count, 4);
 
   input_buffer_destroy(buffer);
+} END_TEST;
+
+START_TEST(input_buffer_reuse) {
+  errno = 0;
+  InputBuffer *buffer = input_buffer_init(1024);
+  int fds[2];
+  create_sockets(fds);
+  int input = fds[0];
+  int output = fds[1];
+
+  const char *str = "testing";
+  dprintf(input, "%s", str);
+  input_buffer_read_into(buffer, output);
+  ck_assert(strncmp(buffer->buffer, str, strlen(str)) == 0);
+  ck_assert_int_eq(buffer->offset, strlen(str));
+
+  input_buffer_reset(buffer);
+  ck_assert_int_eq(buffer->offset, 0);
+
+  const char *str2 = "1-2-3";
+  dprintf(input, "%s", str2);
+  input_buffer_read_into(buffer, output);
+  ck_assert(strncmp(buffer->buffer, str2, strlen(str2)) == 0);
+  ck_assert_int_eq(buffer->offset, strlen(str2));
+
 } END_TEST;
 
 Suite *input_buffer_suite(void) {
   Suite *suite = suite_create("input buffer");
   TCase *tc_core = tcase_create("Core");
 
-  //tcase_add_test(tc_core, input_buffer_read);
-  //tcase_add_test(tc_core, input_buffer_mult_reads);
+  tcase_add_test(tc_core, input_buffer_read);
+  tcase_add_test(tc_core, input_buffer_mult_reads);
   tcase_add_test(tc_core, input_buffer_resize);
+  tcase_add_test(tc_core, input_buffer_reuse);
   suite_add_tcase(suite, tc_core);
 
   return suite;
@@ -97,7 +124,7 @@ int main(void) {
 
   srunner_run_all(runner, CK_NORMAL);
   int number_failed = srunner_ntests_failed(runner);
-
+  
   srunner_free(runner);
   return (number_failed == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
