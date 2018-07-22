@@ -37,7 +37,7 @@ void input_buffer_destroy(InputBuffer *buffer) {
 
 enum ReadState input_buffer_read_into(InputBuffer *buffer, int fd) {
   while (1) {
-    resize(buffer);
+    resize(buffer);    errno = 0;
 
     void *start_addr = buffer->buffer + buffer->offset;
     size_t num_to_read = buffer->length - buffer->offset;

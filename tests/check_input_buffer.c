@@ -3,6 +3,7 @@
 #include <check.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 
@@ -10,7 +11,7 @@
 #include "../src/logging.h"
 
 static void create_sockets(int fds[2]) {
-  int r = socketpair(AF_LOCAL, SOCK_SEQPACKET, 0, fds);
+  int r = socketpair(AF_LOCAL, SOCK_STREAM, 0, fds);
   CHECK(r != 0, "Failed to create actor socket pair");
 
   r = fcntl(fds[0], F_SETFL, O_NONBLOCK);
@@ -21,6 +22,7 @@ static void create_sockets(int fds[2]) {
 }
 
 START_TEST(input_buffer_read) {
+  errno = 0;
   InputBuffer *buffer = input_buffer_init(1024);
   
   int fds[2];
@@ -39,6 +41,7 @@ START_TEST(input_buffer_read) {
 } END_TEST
 
 START_TEST(input_buffer_mult_reads) {
+  errno = 0;
   InputBuffer *buffer = input_buffer_init(1024);
   int fds[2];
   create_sockets(fds);
@@ -57,7 +60,8 @@ START_TEST(input_buffer_mult_reads) {
 } END_TEST;
 
 START_TEST(input_buffer_resize) {
-  InputBuffer *buffer = input_buffer_init(2);
+  errno = 0;
+  InputBuffer *buffer = input_buffer_init(4);
   int fds[2];
   create_sockets(fds);
   int input = fds[0];
@@ -65,10 +69,12 @@ START_TEST(input_buffer_resize) {
 
   const char *str = "testing-1-2-3-4-5-6-7-8-9-10-11-12-13-14-15";
   dprintf(input, "%s", str);
-  input_buffer_read_into(buffer, output);
 
-  ck_assert_str_eq(buffer->buffer, str);
-  ck_assert_int_eq(buffer->length, 20);
+  enum ReadState state = input_buffer_read_into(buffer, output);
+  ck_assert_int_eq(READ_BUSY, state);
+  ck_assert(strncmp(buffer->buffer, str, strlen(str)) == 0);
+  ck_assert_int_eq(buffer->offset, strlen(str));
+  ck_assert_int_eq(buffer->length, 64);
 
   input_buffer_destroy(buffer);
 } END_TEST;

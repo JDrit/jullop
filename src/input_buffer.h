@@ -9,9 +9,17 @@ enum ReadState {
 };
 
 typedef struct InputBuffer {
+  /* the pointer to the beginning of the buffer. */
   char *buffer;
+  
+  /* stores the max capacity of this buffer. */
   size_t length;
+
+  /* stores how many bytes have currently been read into the buffer. */
   size_t offset;
+
+  /* stores the number of times that this input buffer was resized. */
+  size_t resize_count;
 } InputBuffer;
 
 /**
