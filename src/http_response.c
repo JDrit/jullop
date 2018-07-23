@@ -61,60 +61,17 @@ static inline const char *get_reason(int status_code) {
   }      
 }
 
-static inline size_t int_size(int i) {
-  if (i < 10)
-    return 1;
-  if (i < 100)
-    return 2;
-  if (i < 1000)
-    return 3;
-  if (i < 10000)
-    return 4;
-  if (i < 100000)
-    return 5;
-  if (i < 1000000)
-    return 6;      
-  if (i < 10000000)
-    return 7;
-  if (i < 100000000)
-    return 8;
-  if (i < 1000000000)
-    return 9;
-  return 10;
-}
-
 void http_response_init(OutputBuffer *buffer, int status_code,
 			HttpHeader headers[10], size_t header_count,
 			const char *body, size_t body_len) {
 
   const char *reason_phrase = get_reason(status_code);
-  size_t status_size = STATUS_SIZE + int_size(status_code) + strlen(reason_phrase);
-  
-  size_t header_size = 0;
-  for (size_t i = 0 ; i < header_count ; i++) {
-    // 4 is for the overhead for each header
-    header_size += headers[i].name_len + headers[i].value_len + 4;
-  }
-
-  size_t total_size = status_size + header_size + BREAK_SIZE + body_len;
-  char *output = (char*) CHECK_MEM(calloc(total_size, sizeof(total_size)));
-
   output_buffer_append(buffer, "HTTP/1.1 %d %s\r\n", status_code, reason_phrase);
-  
-  int offset = 0;
-  offset += sprintf(output, "HTTP/1.1 %d %s\r\n", status_code, reason_phrase);
 
   for (size_t i = 0 ; i < header_count ; i++) {
-    offset += sprintf(output + offset, "%.*s: %.*s\r\n",
-		      (int) headers[i].name_len, headers[i].name,
-		      (int) headers[i].value_len, headers[i].value);
-
     output_buffer_append(buffer, "%.*s: %.*s\r\n",
 			 (int) headers[i].name_len, headers[i].name,
 			 (int) headers[i].value_len, headers[i].value);
-
   }
-
-  offset += sprintf(output + offset, "\r\n%.*s", (int) body_len, body);
   output_buffer_append(buffer, "\r\n%.*s", (int) body_len, body);
 }

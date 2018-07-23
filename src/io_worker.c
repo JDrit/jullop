@@ -288,7 +288,8 @@ static void read_client_request(EpollInfo *epoll_info,
     //todo fix this not to be blocking
     ActorInfo *actor_info = &server->app_actors[actor_id];
     Queue *input_queue = actor_info->input_queue;
-    
+
+    request_record_start(&request_context->time_stats, QUEUE_TIME);
     enum QueueResult queue_result = queue_push(input_queue, request_context);
     CHECK(queue_result != QUEUE_SUCCESS, "Failed to send message");
     to_actor++;
@@ -371,11 +372,12 @@ int read_queue_item(EpollInfo *epoll_info, Server *server, ActorContext *actor_c
   }
 
   for (eventfd_t i = 0 ; i < num_to_read ; i++) {
-    RequestContext *request_context = queue_pop(actor_context->queue);
+    RequestContext *request_context = (RequestContext*) queue_pop(actor_context->queue);
     if (request_context == NULL) {
       LOG_WARN("Failed to dequeue a request context");
       return -1;
     } else {
+      request_record_end(&request_context->time_stats, QUEUE_TIME);
       from_actor++;
       
       /* All that is left is to send the response back to the client. */

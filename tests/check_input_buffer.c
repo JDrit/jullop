@@ -114,7 +114,6 @@ Suite *input_buffer_suite(void) {
   tcase_add_test(tc_core, input_buffer_resize);
   tcase_add_test(tc_core, input_buffer_reuse);
   suite_add_tcase(suite, tc_core);
-
   return suite;
 }
 

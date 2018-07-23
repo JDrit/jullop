@@ -1,6 +1,3 @@
-
-#ifdef LOCK_QUEUE
-
 #define _GNU_SOURCE
 
 #include <pthread.h>
@@ -77,7 +74,7 @@ int queue_add_event_fd(Queue *queue) {
   return queue->add_event;
 }
 
-enum QueueResult queue_push(Queue *queue, RequestContext *request_context) {
+enum QueueResult queue_push(Queue *queue, void *ptr) {
   int r = pthread_mutex_lock(&queue->lock);
   CHECK(r != 0, "Failed to lock mutex");
 
@@ -87,7 +84,7 @@ enum QueueResult queue_push(Queue *queue, RequestContext *request_context) {
     return QUEUE_FAILURE;
   }
 
-  queue->ring_buffer[queue->enqueue_offset] = request_context;
+  queue->ring_buffer[queue->enqueue_offset] = ptr;
   queue->enqueue_offset = (queue->enqueue_offset + 1) % queue->max_size;
   queue->current_size++;
 
@@ -99,7 +96,7 @@ enum QueueResult queue_push(Queue *queue, RequestContext *request_context) {
   return QUEUE_SUCCESS;
 }
 
-RequestContext *queue_pop(Queue *queue) {
+void *queue_pop(Queue *queue) {
   int r = pthread_mutex_lock(&queue->lock);
   CHECK(r != 0, "Failed to lock mutex");
 
@@ -109,13 +106,11 @@ RequestContext *queue_pop(Queue *queue) {
     return NULL;
   }
 
-  RequestContext *request_context = queue->ring_buffer[queue->dequeue_offset];
+  void *ptr = queue->ring_buffer[queue->dequeue_offset];
   queue->dequeue_offset = (queue->dequeue_offset + 1) % queue->max_size;
   queue->current_size--;
 
   r = pthread_mutex_unlock(&queue->lock);
   CHECK(r != 0, "Failed to unlock mutex");
-  return request_context;
+  return ptr;
 }
-
-#endif

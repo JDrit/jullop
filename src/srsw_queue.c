@@ -1,19 +1,14 @@
-
-#ifdef ATOMIC_QUEUE
-
 #define _GNU_SOURCE
 
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/eventfd.h>
 #include <unistd.h>
 
 #include "logging.h"
 #include "queue.h"
-#include "request_context.h"
 #include "time_stats.h"
 
 typedef struct Queue {
@@ -30,7 +25,7 @@ typedef struct Queue {
   /* the internal buffer used to store the messages. This should never be 
    * accessed by any external caller. By using a ring buffer, we prevent
    * any memory allocations being required during the request. */
-  RequestContext **ring_buffer;
+  void **ring_buffer;
 
   /* the event file descriptor used to detect when a new message was added
    * to the mailbox. */
@@ -100,20 +95,14 @@ size_t queue_size(Queue *queue) {
   }
 }
 
-enum QueueResult queue_push(Queue *queue, RequestContext *request_context) {
+enum QueueResult queue_push(Queue *queue, void *ptr) {
   size_t pop_offset = atomic_load(&queue->pop_offset);
   size_t push_offset = atomic_load(&queue->push_offset);
 
   if (((push_offset + 1) & queue->mask) == pop_offset) {
     return QUEUE_FAILURE;
   } else {
-    /* Starts tracking the time spent in the queue for this request. */
-    request_record_start(&request_context->time_stats, QUEUE_TIME);
-
-    LOG_INFO("pushing item into offset %zu: %d", push_offset, request_context->fd); 
-    queue->ring_buffer[push_offset] = request_context;
-    /*memcpy(queue->ring_buffer + sizeof(size_t) * push_offset, &request_context, sizeof(size_t)); */
-
+    queue->ring_buffer[push_offset] = ptr;
     atomic_store(&queue->push_offset, (push_offset + 1) & queue->mask);
 
     /* Uses the event file descriptor as the notification system */
@@ -123,21 +112,17 @@ enum QueueResult queue_push(Queue *queue, RequestContext *request_context) {
   }
 }
 
-RequestContext *queue_pop(Queue *queue) {
+void *queue_pop(Queue *queue) {
   size_t pop_offset = atomic_load(&queue->pop_offset);
   size_t push_offset = atomic_load(&queue->push_offset);
 
   if (pop_offset == push_offset) {
     return NULL;
   } else {
-    RequestContext *request_context = queue->ring_buffer[pop_offset];
-    LOG_INFO("popping item into offset %zu", pop_offset);
+    void *ptr = queue->ring_buffer[pop_offset];
 
-    /* Finishes tracking the time spent in the queue for this request. */
-    request_record_end(&request_context->time_stats, QUEUE_TIME);
     atomic_store(&queue->pop_offset, (pop_offset + 1) & queue->mask);
-    return request_context;
+    return ptr;
   }
 }
 
-#endif

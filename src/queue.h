@@ -1,11 +1,6 @@
 #ifndef __mailbox_h__
 #define __mailbox_h__
 
-#include <stdatomic.h>
-#include <stdint.h>
-
-#include "request_context.h"
-
 /**
  * The queue is designed for efficient inter-thread communication designed for a
  * single-reader single-writer mode.
@@ -57,12 +52,12 @@ int queue_add_event_fd(Queue *queue);
  * been added and for concurrency control, the caller thread must not use that
  * memory after this call finishes.
  */
-enum QueueResult queue_push(Queue *queue, RequestContext *request_context);
+enum QueueResult queue_push(Queue *queue, void *ptr);
 
 /**
- * Tries to read a new message from the queue. It returns the next request
- * context to use. Null is returned if the queue is empty.
+ * Tries to read a new message from the queue. It returns the next payload. 
+ * Null is returned if the queue is empty.
  */
-RequestContext *queue_pop(Queue *queue);
+void *queue_pop(Queue *queue);
 
 #endif
