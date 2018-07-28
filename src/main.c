@@ -31,8 +31,12 @@ static int create_socket(uint16_t port, int queue_length) {
   CHECK(setsockopt(sock, SOL_SOCKET, SO_REUSEPORT | SO_REUSEADDR, &opt, sizeof(opt)) == -1,
 	"Failed to set options on SO_REUSEPORT | SO_REUSEADDR");
   // all writes should send packets right away
+
   CHECK(setsockopt(sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt)) == -1,
   	"Failed to set options on TCP_NODELAY");
+
+  CHECK(setsockopt(sock, SOL_TCP, TCP_QUICKACK, &opt, sizeof(opt)) == -1,
+	"Failed to set options on TCP_QUICKACK");
 
   struct sockaddr_in address;
   memset(&address, 0, sizeof(address));
@@ -52,12 +56,17 @@ static int create_socket(uint16_t port, int queue_length) {
 
 void create_actor(Server *server, int id, ActorInfo *actor) {
   actor->id = id;
+  actor->queue_count = server->io_worker_count;
   actor->startup = &server->startup;
+  actor->input_queue = CHECK_MEM(malloc(((size_t) server->io_worker_count) * sizeof(size_t)));
+  actor->output_queue = CHECK_MEM(malloc(((size_t) server->io_worker_count) * sizeof(size_t)));
 
-  uint16_t queue_size = 2000;
-  actor->input_queue = queue_init(queue_size);
-  actor->output_queue = queue_init(queue_size);
-
+  for (int i = 0 ; i < server->io_worker_count ; i++) {
+    uint16_t queue_size = 2000;
+    actor->input_queue[i] = queue_init(queue_size);
+    actor->output_queue[i] = queue_init(queue_size);
+  }
+  
   pthread_t thread_id;
   int r = pthread_create(&thread_id, NULL, run_actor, actor);
   CHECK(r != 0, "Failed to create pthread %d", id);
@@ -103,7 +112,7 @@ pthread_t create_io_worker(int id, int sock_fd, Server *server) {
 int main(int argc, char* argv[]) {
   uint16_t port = 8080;
   int queue_length = 10;
-  int io_worker_count = 1;
+  int io_worker_count = 2;
   int cores = get_nprocs();
   pid_t pid = getpid();
   

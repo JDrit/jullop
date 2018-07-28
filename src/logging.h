@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <string.h>
 #include <pthread.h>
+#include <unistd.h>
 
 #define ANSI_COLOR_RESET   "\x1b[0m"
 #define DEBUG_COLOR "\x1b[36m"

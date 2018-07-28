@@ -41,6 +41,7 @@ RequestContext *init_request_context(int fd, char* host_name) {
   context->remote_host = host_name;
   context->fd = fd;
   context->actor_id = -1;
+  context->epoll_state = EPOLL_NONE;
 
   context->input_buffer = input_buffer_init(BUF_SIZE);
   context->output_buffer = output_buffer_init(BUF_SIZE);

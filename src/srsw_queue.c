@@ -96,14 +96,18 @@ size_t queue_size(Queue *queue) {
 }
 
 enum QueueResult queue_push(Queue *queue, void *ptr) {
-  size_t pop_offset = atomic_load(&queue->pop_offset);
-  size_t push_offset = atomic_load(&queue->push_offset);
+  size_t push_offset = atomic_load_explicit(&queue->push_offset,
+					    __ATOMIC_RELAXED);
+  size_t pop_offset = atomic_load_explicit(&queue->pop_offset,
+					   __ATOMIC_ACQUIRE);
 
   if (((push_offset + 1) & queue->mask) == pop_offset) {
     return QUEUE_FAILURE;
   } else {
     queue->ring_buffer[push_offset] = ptr;
-    atomic_store(&queue->push_offset, (push_offset + 1) & queue->mask);
+    atomic_store_explicit(&queue->push_offset,
+			  (push_offset + 1) & queue->mask,
+			  __ATOMIC_RELEASE);
 
     /* Uses the event file descriptor as the notification system */
     int r = eventfd_write(queue->add_event, 1);
@@ -113,15 +117,19 @@ enum QueueResult queue_push(Queue *queue, void *ptr) {
 }
 
 void *queue_pop(Queue *queue) {
-  size_t pop_offset = atomic_load(&queue->pop_offset);
-  size_t push_offset = atomic_load(&queue->push_offset);
+  size_t pop_offset = atomic_load_explicit(&queue->pop_offset,
+					   __ATOMIC_RELAXED);
+  size_t push_offset = atomic_load_explicit(&queue->push_offset,
+					    __ATOMIC_ACQUIRE);
 
   if (pop_offset == push_offset) {
     return NULL;
   } else {
     void *ptr = queue->ring_buffer[pop_offset];
 
-    atomic_store(&queue->pop_offset, (pop_offset + 1) & queue->mask);
+    atomic_store_explicit(&queue->pop_offset,
+			  (pop_offset + 1) & queue->mask,
+			  __ATOMIC_RELEASE);
     return ptr;
   }
 }

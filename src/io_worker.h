@@ -1,6 +1,7 @@
 #ifndef __input_actor_h__
 #define __input_actor_h__
 
+#include "request_context.h"
 #include "server.h"
 
 typedef struct IoWorkerArgs {
@@ -12,7 +13,40 @@ typedef struct IoWorkerArgs {
   Server *server;
 } IoWorkerArgs;
 
+typedef struct ActorContext {
+  /* the id of the actor. */
+  int id;
+  /* the event file descriptor used for messages from the actor. */
+  int fd;
+  /* the queue to receieve events back from the actor. */
+  Queue *queue;
+} ActorContext;
 
+typedef struct AcceptContext {
+  /* the file descriptor to listen for new connections on. */
+  int fd;
+} AcceptContext;
+
+typedef struct IoContext {
+
+  enum type {
+    CLIENT,
+    ACTOR,
+    ACCEPT,
+  } type;
+
+  union context {
+    RequestContext *request_context;
+    ActorContext *actor_context;
+    AcceptContext *accept_context;
+  } context;
+  
+} IoContext;
+
+/**
+ * Runs the event loop in the current thread to process
+ * requests off the specified socket.
+ */
 void *io_event_loop(void *pthread_input);
 
 #endif

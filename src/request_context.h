@@ -25,6 +25,12 @@ enum RequestState {
   FINISH
 };
 
+enum EpollState {
+  EPOLL_NONE,
+  EPOLL_INPUT,
+  EPOLL_OUTPUT,
+};
+
 typedef struct RequestContext {
 
   /* the address of the client */
@@ -34,6 +40,9 @@ typedef struct RequestContext {
 
   /* the actor that processed the request */
   int actor_id;
+
+  /* used to keep track what the state of the file descriptor is in */
+  enum EpollState epoll_state;
 
   /* used to store the data read in from the client */
   InputBuffer *input_buffer;
