@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 
+#include "stats.h"
 #include "queue.h"
 
 typedef struct ActorInfo {
@@ -28,11 +29,15 @@ typedef struct ActorInfo {
 } ActorInfo;
 
 typedef struct Server {
+  Stats *stats;
+  
+  /* the number of threads used to read/write client requests. */
   int io_worker_count;
   
-  /* the amount of actor running on the server */
+  /* the amount of actor running on the server. */
   int actor_count;
-  /* the list of the actors running */
+
+  /* the list of the actors running. */
   ActorInfo *app_actors;
 
   /* used to block all threads till the application actors have

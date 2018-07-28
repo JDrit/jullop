@@ -22,15 +22,6 @@ void epoll_info_destroy(EpollInfo *epoll_info) {
   free(epoll_info);
 }
 
-void epoll_info_print(EpollInfo *epoll) {
-  LOG_INFO("EPOLL: name='%s' active=%ld total=%ld bytes_read=%ld bytes_written=%ld",
-	   epoll->name,
-	   epoll->stats.active_connections,
-	   epoll->stats.total_requests_processed,
-	   epoll->stats.bytes_read,
-	   epoll->stats.bytes_written);
-}
-
 enum EpollError check_epoll_errors(EpollInfo *epoll, struct epoll_event *event) {
   if (event->events & EPOLLERR) {
     LOG_WARN("Epoll event error on %s due to read side of the socket closing",

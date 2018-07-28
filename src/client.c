@@ -52,7 +52,9 @@ static enum ReadState try_parse_http_request(RequestContext *request_context) {
 
 static size_t count = 0;
 
-bool client_read_request(EpollInfo *epoll_info, Server *server, int id, IoContext *io_context) {
+bool client_read_request(Server *server, EpollInfo *epoll_info, int id,
+			 IoContext *io_context) {
+  
   RequestContext *request_context = io_context->context.request_context;
   request_record_start(&request_context->time_stats, CLIENT_READ_TIME);
   enum ReadState state = try_parse_http_request(request_context);
@@ -87,11 +89,11 @@ bool client_read_request(EpollInfo *epoll_info, Server *server, int id, IoContex
   }
   case READ_ERROR:
     request_context->state = FINISH;
-    client_close_connection(epoll_info, io_context, REQUEST_READ_ERROR);
+    client_close_connection(server, epoll_info, io_context, REQUEST_READ_ERROR);
     return true;
   case CLIENT_DISCONNECT:
     request_context->state = FINISH;
-    client_close_connection(epoll_info, io_context, REQUEST_CLIENT_ERROR);
+    client_close_connection(server, epoll_info, io_context, REQUEST_CLIENT_ERROR);
     return true;
   case READ_BUSY:
     // there is still more to read off of the client request, for now go
@@ -100,7 +102,8 @@ bool client_read_request(EpollInfo *epoll_info, Server *server, int id, IoContex
   }
 }
 
-bool client_write_response(EpollInfo *epoll_info, IoContext *io_context) {
+bool client_write_response(Server *server, EpollInfo *epoll_info,
+			   IoContext *io_context) {
   RequestContext *request_context = io_context->context.request_context;
   
   request_record_start(&request_context->time_stats, CLIENT_WRITE_TIME);
@@ -114,28 +117,26 @@ bool client_write_response(EpollInfo *epoll_info, IoContext *io_context) {
     return false;
   case WRITE_ERROR:
     LOG_WARN("Error while writing response to client");
-    client_close_connection(epoll_info, io_context, REQUEST_WRITE_ERROR);
+    client_close_connection(server, epoll_info, io_context, REQUEST_WRITE_ERROR);
     return true;
   case WRITE_FINISH:
     request_context->state = FINISH;
 
     if (context_keep_alive(request_context) == 1) {
-      client_reset_connection(epoll_info, io_context, REQUEST_SUCCESS);
+      client_reset_connection(server, epoll_info, io_context, REQUEST_SUCCESS);
     } else {
-      client_close_connection(epoll_info, io_context, REQUEST_SUCCESS);
+      client_close_connection(server, epoll_info, io_context, REQUEST_SUCCESS);
     }
     return true;
   }
 }
 
-void client_reset_connection(EpollInfo *epoll_info, IoContext *io_context,
-			     enum RequestResult result) {
+void client_reset_connection(Server *server, EpollInfo *epoll_info,
+			     IoContext *io_context, enum RequestResult result) {
   RequestContext *request_context = io_context->context.request_context;
 
-  epoll_info->stats.total_requests_processed++;
-  epoll_info->stats.bytes_written += context_bytes_written(request_context);
-  epoll_info->stats.bytes_read += context_bytes_read(request_context);
-
+  stats_incr_total(server->stats);
+ 
   // log the timestamp at which the request is done
   request_record_end(&request_context->time_stats, TOTAL_TIME);
   
@@ -158,15 +159,14 @@ void client_reset_connection(EpollInfo *epoll_info, IoContext *io_context,
 }
 
 
-void client_close_connection(EpollInfo *epoll_info, IoContext *io_context,
-			     enum RequestResult result) {
-  RequestContext *request_context = io_context->context.request_context;
+void client_close_connection(Server *server, EpollInfo *epoll_info,
+			     IoContext *io_context, enum RequestResult result) {
   
-  epoll_info->stats.active_connections--;
-  epoll_info->stats.total_requests_processed++;
-  epoll_info->stats.bytes_written += context_bytes_written(request_context);
-  epoll_info->stats.bytes_read += context_bytes_read(request_context);
+  RequestContext *request_context = io_context->context.request_context;
 
+  stats_decr_active(server->stats);
+  stats_incr_total(server->stats);
+  
   // log the timestamp at which the request is done
   request_record_end(&request_context->time_stats, TOTAL_TIME);
 

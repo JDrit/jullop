@@ -4,24 +4,11 @@
 #include <stddef.h>
 #include <sys/epoll.h>
 
-struct Stats {
-  /* The number of currently open connections */
-  size_t active_connections;
-  /* The total number of requests that have been handled cumulatively */
-  size_t total_requests_processed;
-  /* The total number of bytes that have been read on the event loop */
-  size_t bytes_read;
-  /* The total number of byes that have been written out on the event loop */
-  size_t bytes_written;
-};
-
 typedef struct EpollInfo {
   /* The file descriptor that is used to run the epoll event loop */
   int epoll_fd;
   /* a name to give to the epoll event loop for helpful messages */
   const char *name;
-  /* server wide stats */
-  struct Stats stats;
 } EpollInfo;
 
 enum EpollError {
@@ -36,8 +23,6 @@ enum EpollError {
 EpollInfo *epoll_info_init(const char *name);
 
 void epoll_info_destroy(EpollInfo *epoll_info);
-
-void epoll_info_print(EpollInfo *epoll);
 
 /**
  * Checks to see if the given epoll event contains an error.

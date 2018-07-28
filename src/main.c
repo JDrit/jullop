@@ -21,6 +21,8 @@
 #include "queue.h"
 #include "request_context.h"
 #include "server.h"
+#include "stats.h"
+#include "stats_thread.h"
 
 static int create_socket(uint16_t port, int queue_length) {
   int opt = 1;
@@ -109,6 +111,17 @@ pthread_t create_io_worker(int id, int sock_fd, Server *server) {
   return thread;
 }
 
+pthread_t create_stats(Server *server) {
+  pthread_t thread;
+  int r = pthread_create(&thread, NULL, stats_loop, server);
+  CHECK(r != 0, "Failed to create stats thread");
+
+  r = pthread_setname_np(thread, "stats-thrd");
+  CHECK(r != 0, "Failed to set stats thread name");
+
+  return thread;
+}
+
 int main(int argc, char* argv[]) {
   uint16_t port = 8080;
   int queue_length = 10;
@@ -118,8 +131,8 @@ int main(int argc, char* argv[]) {
   
   LOG_INFO("starting up pid=%d port=%d", pid, port);
 
-
   struct Server server;
+  server.stats = stats_init();
   server.io_worker_count = io_worker_count;
   server.actor_count = cores;
   server.app_actors = (ActorInfo*) CHECK_MEM(calloc((size_t) cores, sizeof(ActorInfo)));
@@ -127,6 +140,8 @@ int main(int argc, char* argv[]) {
   int r = pthread_barrier_init(&server.startup, NULL,
 			       (uint) (server.actor_count + server.io_worker_count));
   CHECK(r != 0, "Failed to construct pthread barrier");
+
+  create_stats(&server);
 
   for (int i = 0 ; i < cores ; i++) {
     create_actor(&server, i, &server.app_actors[i]);

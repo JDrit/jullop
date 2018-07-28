@@ -1,8 +1,19 @@
 #ifndef __input_actor_h__
 #define __input_actor_h__
 
+#include <stdatomic.h>
+
 #include "request_context.h"
 #include "server.h"
+
+typedef struct IoWorkerStats {
+    /* The number of currently open connections */
+  _Atomic size_t active_connections;
+
+  /* The total number of requests that have been handled cumulatively */
+  _Atomic size_t total_requests_processed;
+
+} IoWorkerStats;
 
 typedef struct IoWorkerArgs {
   /* unique ID of the worker */
