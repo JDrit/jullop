@@ -88,7 +88,7 @@ void process_epoll_event(Server *server, int actor_id, Queue *input_queue) {
       output_context->data.ptr = request_context;
       output_context->input_handler = NULL;
       output_context->output_handler = client_handle_write;
-      //output_context->error_handler = client_handle_error;
+      output_context->error_handler = client_handle_error;
       
       add_output_epoll_event(request_context->epoll_info,
 			     request_context->fd,

@@ -125,17 +125,15 @@ void client_handle_write(SocketContext *context) {
 void client_handle_error(SocketContext *context, uint32_t events) {
 
   if (events & EPOLLERR) {
-    LOG_WARN("Error due to read size of socket closing");
+    LOG_DEBUG("Error due to read size of socket closing");
   } else if (events & EPOLLHUP) {
-    LOG_WARN("Error due to hang up on file descriptor");    
+    LOG_DEBUG("Error due to hang up on file descriptor");    
   } else if (events & EPOLLRDHUP) {
-    LOG_WARN("Error due to peer closed connection");
+    LOG_DEBUG("Error due to peer closed connection");
   } else if (events & EPOLLPRI) {
     LOG_WARN("Error due to uknown issue");
   }
 
-  context_print_finish((RequestContext*) context->data.ptr, REQUEST_EPOLL_ERROR);
-  
   client_close_connection(context, REQUEST_EPOLL_ERROR);
 }
 

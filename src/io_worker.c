@@ -25,7 +25,7 @@
 #include "request_context.h"
 #include "time_stats.h"
 
-#define MAX_EVENTS 2048
+#define MAX_EVENTS 4096
 
 SocketContext *init_context(Server *server, EpollInfo *epoll_info) {
   SocketContext *socket_context = (SocketContext*) CHECK_MEM(malloc(sizeof(SocketContext)));
@@ -75,7 +75,7 @@ void handle_accept_read(SocketContext *context) {
     connection_context->data.ptr = request_context;
     connection_context->input_handler = client_handle_read;
     connection_context->output_handler = NULL;
-    //    connection_context->error_handler = client_handle_error;
+    connection_context->error_handler = client_handle_error;
 
     add_input_epoll_event(context->epoll_info, request_context->fd, connection_context);
   }
@@ -121,7 +121,8 @@ void *io_event_loop(void *pthread_input) {
     for (int i = 0 ; i < ready_amount ; i++) {
       SocketContext *socket_context = (SocketContext*) events[i].data.ptr;
 
-      if (events[i].events & EPOLLRDHUP
+      if (events[i].events & EPOLLERR
+	  || events[i].events & EPOLLRDHUP
 	  || events[i].events & EPOLLHUP
 	  || events[i].events & EPOLLPRI) {
 	if (socket_context->error_handler != NULL) {
@@ -129,10 +130,10 @@ void *io_event_loop(void *pthread_input) {
            * should always check for error first and skip any other events
            * for the same listener. */
 	  socket_context->error_handler(socket_context, events[i].events);
-	  continue;
 	} else {
 	  LOG_WARN("epoll event did not have an error handler attached");
 	}
+	continue;
       }
 
       if (events[i].events & EPOLLIN) {
@@ -150,7 +151,6 @@ void *io_event_loop(void *pthread_input) {
 	  LOG_WARN("epoll event did not have an output handler attached");
 	}
       }
-
     }
   }
   return NULL;

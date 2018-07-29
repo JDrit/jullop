@@ -90,21 +90,22 @@ int context_keep_alive(RequestContext *context) {
 }
 
 void context_print_finish(RequestContext *context, enum RequestResult result) {  
-  LOG_DEBUG("Request Stats : result=%s fd=%d remote_host=%s actor=%d "
-	   "bytes_read=%zu bytes_written=%zu",
-	    request_result_name(result),
-	    context->fd,
-	    context->remote_host,
-	    context->actor_id,
-	    context->input_buffer->offset,
-	    context->output_buffer->write_into_offset);
-  LOG_DEBUG("Time Stats    : total_micros=%ld client_read_micros=%ld "
+  LOG_INFO("\n"
+	   "Request Stats : result=%s fd=%d remote_host=%s actor=%d "
+	   "bytes_read=%zu bytes_written=%zu\n"
+	   "Time Stats    : total_micros=%ld client_read_micros=%ld "
 	   "actor_micros=%ld client_write_micros=%ld queue_micros=%ld",
-	    request_get_time(&context->time_stats, TOTAL_TIME),
-	    request_get_time(&context->time_stats, CLIENT_READ_TIME),
-	    request_get_time(&context->time_stats, ACTOR_TIME),
-	    request_get_time(&context->time_stats, CLIENT_WRITE_TIME),
-	    request_get_time(&context->time_stats, QUEUE_TIME));
+	   request_result_name(result),
+	   context->fd,
+	   context->remote_host,
+	   context->actor_id,
+	   context->input_buffer->offset,
+	   context->output_buffer->write_into_offset,
+	   request_get_time(&context->time_stats, TOTAL_TIME),
+	   request_get_time(&context->time_stats, CLIENT_READ_TIME),
+	   request_get_time(&context->time_stats, ACTOR_TIME),
+	   request_get_time(&context->time_stats, CLIENT_WRITE_TIME),
+	   request_get_time(&context->time_stats, QUEUE_TIME));
 }
 
 void context_finalize_reset(RequestContext *context, enum RequestResult result) {
