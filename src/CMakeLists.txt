@@ -28,8 +28,8 @@ add_library(jullop STATIC
 target_compile_options(jullop PRIVATE
   -std=gnu11 -g -O3 -Wall -Wextra -Wconversion -fno-builtin-malloc
   -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free
-  -fcolor-diagnostics -Wno-unused-parameter)
-target_link_libraries(jullop pthread tcmalloc lock_queue)
+  -fcolor-diagnostics -Wno-unused-parameter -DDEBUG)
+target_link_libraries(jullop pthread lock_queue)
 
 add_executable(main main.c)
 target_compile_options(main PRIVATE

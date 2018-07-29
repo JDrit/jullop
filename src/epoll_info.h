@@ -9,18 +9,16 @@ typedef struct EpollInfo {
   int epoll_fd;
   /* a name to give to the epoll event loop for helpful messages */
   const char *name;
-} EpollInfo;
 
-enum EpollError {
-  NONE,
-  EPOLL_ERROR,
-};
+  int id;
+  
+} EpollInfo;
 
 /**
  * Creates epoll event loop. The given `accept_fd` is the file descriptor
  * used to listen to new requests on.
  */
-EpollInfo *epoll_info_init(const char *name);
+EpollInfo *epoll_info_init(const char *name, int id);
 
 void epoll_info_destroy(EpollInfo *epoll_info);
 

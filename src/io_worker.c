@@ -25,68 +25,20 @@
 #include "request_context.h"
 #include "time_stats.h"
 
-#define MAX_EVENTS 750
+#define MAX_EVENTS 2048
 
-static inline const char* context_type_name(IoContext *io_context) {
-  switch (io_context->type) {
-  case CLIENT: return "CLIENT";
-  case ACTOR: return "ACTOR";
-  case ACCEPT: return "ACCEPT";
-  default: return "UNKNOWN";
-  }
+SocketContext *init_context(Server *server, EpollInfo *epoll_info) {
+  SocketContext *socket_context = (SocketContext*) CHECK_MEM(malloc(sizeof(SocketContext)));
+  socket_context->server = server;
+  socket_context->epoll_info = epoll_info;
+  return socket_context;
 }
 
-/**
- * The epoll event controlling the client connection can into an issue. 
- * Disconnect and end the connection. 
- */
-static void handle_epoll_client_error(Server *server, EpollInfo *epoll_info,
-				      IoContext *io_context) {
-  int fd = io_context->context.request_context->fd;
-  int error = 0;
-  socklen_t errlen = sizeof(error);
-  getsockopt(fd, SOL_SOCKET, SO_ERROR, (void *)&error, &errlen);
-  LOG_WARN("Closing connection early due to %s", strerror(error));	    
-  client_close_connection(server, epoll_info, io_context, REQUEST_EPOLL_ERROR);
-}
-
-static IoContext *init_actor_io_context(int id, int fd, Queue *queue) {
-  IoContext *io_context = (IoContext*) CHECK_MEM(calloc(1, sizeof(IoContext)));
-  ActorContext *actor_context = (ActorContext*) CHECK_MEM(calloc(1, sizeof(ActorContext)));
-  actor_context->id = id;
-  actor_context->fd = fd;
-  actor_context->queue = queue;
-  io_context->type = ACTOR;
-  io_context->context.actor_context = actor_context;
-  return io_context;
-}
-
-static IoContext *init_client_io_context(RequestContext *request_context) {
-  IoContext *io_context = (IoContext*) CHECK_MEM(calloc(1, sizeof(IoContext)));
-  io_context->type = CLIENT;
-  io_context->context.request_context = request_context;
-  return io_context;
-}
-
-static IoContext *init_accept_io_context(int fd) {
-  IoContext *io_context = (IoContext*) CHECK_MEM(calloc(1, sizeof(IoContext)));
-  AcceptContext *accept_context = (AcceptContext*) CHECK_MEM(calloc(1, sizeof(AcceptContext)));
-  accept_context->fd = fd;
-  io_context->type = ACCEPT;
-  io_context->context.accept_context = accept_context;
-  return io_context;
-}
-
-/**
- * Accepts as many as possible waiting connections and registers them all in the 
- * input event loop. This can register multiple connections in one go.
- */
-void handle_accept_op(Server *server, EpollInfo *epoll_info, int accept_fd) {
-
+void handle_accept_read(SocketContext *context) {
   while (1) {
     struct sockaddr_in in_addr;
     socklen_t size = sizeof(in_addr);
-    int conn_sock = accept(accept_fd, (struct sockaddr *) &in_addr, &size);
+    int conn_sock = accept(context->data.fd, (struct sockaddr *) &in_addr, &size);
     if (conn_sock == -1) {
       if (ERROR_BLOCK) {
 	return;
@@ -96,87 +48,42 @@ void handle_accept_op(Server *server, EpollInfo *epoll_info, int accept_fd) {
     }
 
     int opt = 1;
-    CHECK(setsockopt(conn_sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt)) == -1,
-	  "Failed to set options on TCP_NODELAY");
+    int r = setsockopt(conn_sock, SOL_TCP, TCP_NODELAY, &opt, sizeof(opt));
+    CHECK(r == -1, "Failed to set options on TCP_NODELAY");
 
-    CHECK(setsockopt(conn_sock, SOL_TCP, TCP_QUICKACK, &opt, sizeof(opt)) == -1,
-	  "Failed to set options on TCP_QUICKACK");
+    r = setsockopt(conn_sock, SOL_TCP, TCP_QUICKACK, &opt, sizeof(opt));
+    CHECK(r == -1, "Failed to set options on TCP_QUICKACK");
     
     fcntl(conn_sock, F_SETFL, O_NONBLOCK);
     
     char* hbuf = (char*) CHECK_MEM(calloc(NI_MAXHOST, sizeof(char)));
     char sbuf[NI_MAXSERV];
     
-    int r = getnameinfo((struct sockaddr*) &in_addr, size, hbuf,
-			NI_MAXHOST * sizeof(char), sbuf,
-			sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV);
+    r = getnameinfo((struct sockaddr*) &in_addr, size, hbuf,
+		    NI_MAXHOST * sizeof(char), sbuf,
+		    sizeof(sbuf), NI_NUMERICHOST | NI_NUMERICSERV);
     CHECK(r == -1, "Failed to get host name");
     
-    LOG_DEBUG("New request from %s:%s", hbuf, sbuf);
-
     /* increments the counter of the total active requests. */
-    stats_incr_active(server->stats);
+    stats_incr_active(context->server->stats);
 
-    RequestContext *request_context = init_request_context(conn_sock, hbuf);
+    RequestContext *request_context = init_request_context(conn_sock, hbuf,
+							   context->epoll_info);
     request_record_start(&request_context->time_stats, TOTAL_TIME);
     
-    IoContext *io_context = init_client_io_context(request_context);
+    SocketContext *connection_context = init_context(context->server, context->epoll_info);
+    connection_context->data.ptr = request_context;
+    connection_context->input_handler = client_handle_read;
+    connection_context->output_handler = NULL;
+    //    connection_context->error_handler = client_handle_error;
 
-    /* does not wait for the epoll event to trigger before starting to read
-     * from the request from the socket. There might already be data waiting
-     * that the client has sent. */
-
-    request_context->epoll_state = EPOLL_INPUT;
-    add_input_epoll_event(epoll_info, request_context->fd, io_context);
-
+    add_input_epoll_event(context->epoll_info, request_context->fd, connection_context);
   }
 }
 
-void handle_client_op(Server *server, EpollInfo *epoll_info, int id, IoContext *io_context) {
-  RequestContext *request_context = io_context->context.request_context;
-  switch (request_context->state) {
-  case CLIENT_READ:
-    client_read_request(server, epoll_info, id, io_context);
-    break;
-  case CLIENT_WRITE:
-    client_write_response(server, epoll_info, io_context);
-    break;
-  default:
-    LOG_WARN("Unknown request state: %d", request_context->state);
-    break;
-  }
-}
-
-
-void handle_actor_op(Server *server, EpollInfo *epoll_info, IoContext *io_context) {
-  ActorContext *actor_context = io_context->context.actor_context;
-
-  while (1) {
-    eventfd_t num_to_read;  
-    int r = eventfd_read(actor_context->fd, &num_to_read);
-    if (r == -1) {
-      return;
-    }
-
-    for (eventfd_t i = 0 ; i < num_to_read ; i++) {
-      RequestContext *request_context = (RequestContext*) queue_pop(actor_context->queue);
-      if (request_context == NULL) {
-	LOG_WARN("Failed to dequeue a request context");
-	return;
-      } else {
-	request_record_end(&request_context->time_stats, QUEUE_TIME);
-	
-	/* All that is left is to send the response back to the client. */
-	request_context->state = CLIENT_WRITE;
-	
-	/* Adds an epoll event responsible for writing the fully constructed HTTP 
-	 * response back to the client. */
-	IoContext *client_output = init_client_io_context(request_context);
-	request_context->epoll_state = EPOLL_OUTPUT;
-	add_output_epoll_event(epoll_info, request_context->fd, client_output);
-      }
-    }
-  }
+void handle_accept_error(SocketContext *context, uint32_t events) {
+  LOG_ERROR("Accept socket ran into an error");
+  FAIL("this should not happen");
 }
 
 /**
@@ -192,25 +99,19 @@ void *io_event_loop(void *pthread_input) {
   LOG_INFO("Starting IO thread");
     
   const char *name = "IO-Thread";
-  EpollInfo *epoll_info = epoll_info_init(name);
+  EpollInfo *epoll_info = epoll_info_init(name, args->id);
 
   /* Adds the epoll event for listening for new connections */
-  IoContext *accept_context = init_accept_io_context(sock_fd);  
-  add_input_epoll_event(epoll_info, sock_fd, accept_context);
+  SocketContext *context = init_context(server, epoll_info);
+  context->data.fd = sock_fd;
+  context->input_handler = handle_accept_read;
+  context->output_handler = NULL;
+  context->error_handler = handle_accept_error;
+  add_input_epoll_event(epoll_info, sock_fd, context);  
 
-  /* Registers the output of the application-level actors so that responses
-   * will be picked up and send back to the clients. */
-  for (int actor_id = 0 ; actor_id < server->actor_count ; actor_id++) {
-    Queue *output_queue = server->app_actors[actor_id].output_queue[args->id];
-    int fd = queue_add_event_fd(output_queue);
-    
-    IoContext *io_context = init_actor_io_context(actor_id, fd, output_queue);
-    add_input_epoll_event(epoll_info, fd, io_context);
-  }
-  
   struct epoll_event events[MAX_EVENTS];
   while (1) {
-    int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, 5000);
+    int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
 
     if (ready_amount == -1) {
       LOG_WARN("Failed to wait on epoll");
@@ -218,40 +119,38 @@ void *io_event_loop(void *pthread_input) {
     }
     
     for (int i = 0 ; i < ready_amount ; i++) {
-      IoContext *io_context = (IoContext*) events[i].data.ptr;
-      LOG_DEBUG("Epoll event type: %s", context_type_name(io_context));
-      
-      //
-      // handle epoll errors. 
-      //
-      if (check_epoll_errors(epoll_info, &events[i]) != NONE) {
-	switch (io_context->type) {
-	case ACTOR:
-	  LOG_WARN("Epoll error for actor socket");
-	  break;
-	case ACCEPT:
-	  LOG_WARN("Epoll error for accept socket");
-	  break;
-	case CLIENT:
-	  handle_epoll_client_error(server, epoll_info, io_context);
-	  break;
+      SocketContext *socket_context = (SocketContext*) events[i].data.ptr;
+
+      if (events[i].events & EPOLLRDHUP
+	  || events[i].events & EPOLLHUP
+	  || events[i].events & EPOLLPRI) {
+	if (socket_context->error_handler != NULL) {
+	  /* Multiple events can happen to a listener at the same time. We
+           * should always check for error first and skip any other events
+           * for the same listener. */
+	  socket_context->error_handler(socket_context, events[i].events);
+	  continue;
+	} else {
+	  LOG_WARN("epoll event did not have an error handler attached");
 	}
-	continue;
       }
 
-      // -----------------------------------------------------------------------
-
-      switch (io_context->type) {
-      case ACTOR:
-	handle_actor_op(server, epoll_info, io_context);
-	break;
-      case ACCEPT:
-	handle_accept_op(server, epoll_info, io_context->context.accept_context->fd);
-	break;
-      case CLIENT:
-	handle_client_op(server, epoll_info, args->id, io_context);
-	break;
+      if (events[i].events & EPOLLIN) {
+	if (socket_context->input_handler != NULL) {
+	  socket_context->input_handler(socket_context);
+	} else {
+	  LOG_WARN("epoll event did not have an input handler attached");
+	}
       }
+      
+      if (events[i].events & EPOLLOUT) {
+	if (socket_context->output_handler != NULL) {
+	  socket_context->output_handler(socket_context);
+	} else {
+	  LOG_WARN("epoll event did not have an output handler attached");
+	}
+      }
+
     }
   }
   return NULL;

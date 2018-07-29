@@ -2,9 +2,9 @@
 #define __output_buffer_h__
 
 enum WriteState {
-  WRITE_FINISH,
-  WRITE_BUSY,
-  WRITE_ERROR
+  WRITE_FINISH = 0,
+  WRITE_BUSY = 1,
+  WRITE_ERROR = 2,
 };
 
 typedef struct OutputBuffer {

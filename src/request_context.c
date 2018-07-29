@@ -15,8 +15,7 @@
 #include "server.h"
 #include "time_stats.h"
 
-#define BUF_SIZE 1
-
+#define BUF_SIZE 1024
 
 inline static char* request_result_name(enum RequestResult result) {
   switch (result) {
@@ -35,20 +34,21 @@ inline static char* request_result_name(enum RequestResult result) {
   }
 }
 
-RequestContext *init_request_context(int fd, char* host_name) {
+RequestContext *init_request_context(int fd, char* host_name, EpollInfo* epoll_info) {
   RequestContext *context =
     (RequestContext*) CHECK_MEM(calloc(1, sizeof(struct RequestContext)));
   context->remote_host = host_name;
   context->fd = fd;
   context->actor_id = -1;
-  context->epoll_state = EPOLL_NONE;
 
   context->input_buffer = input_buffer_init(BUF_SIZE);
   context->output_buffer = output_buffer_init(BUF_SIZE);
 
   context->http_request.num_headers = NUM_HEADERS;
-  context->state = CLIENT_READ;
   request_clear_time(&context->time_stats);
+
+  context->epoll_info = epoll_info;
+  
   return context;
 }
 
@@ -116,7 +116,6 @@ void context_finalize_reset(RequestContext *context, enum RequestResult result) 
   input_buffer_reset(context->input_buffer);
   output_buffer_reset(context->output_buffer);
   
-  context->state = CLIENT_READ;
   request_clear_time(&context->time_stats);
 }
 
@@ -133,5 +132,7 @@ void context_finalize_destroy(RequestContext *context, enum RequestResult result
   int r = close(context->fd);
   CHECK(r != 0, "Failed to close client connection");
 
+  context->epoll_info = NULL;
+  
   free(context);
 }

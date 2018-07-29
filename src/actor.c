@@ -9,9 +9,11 @@
 #include <unistd.h>
 
 #include "actor.h"
+#include "client.h"
 #include "epoll_info.h"
 #include "http_request.h"
 #include "http_response.h"
+#include "io_worker.h"
 #include "logging.h"
 #include "queue.h"
 #include "request_context.h"
@@ -19,12 +21,6 @@
 #include "time_stats.h"
 
 #define MAX_EVENTS 10
-
-typedef struct ActorContext {
-  int id;
-  Queue *input_queue;
-  Queue *output_queue;
-} ActorContext;
 
 /**
  * Does the actual request processing. Takes in a request context and is
@@ -63,17 +59,17 @@ static void handle_request(RequestContext *request_context) {
 		       http_request.path_len);
 }
 
-void process_epoll_event(int actor_id, ActorContext *context) {
+void process_epoll_event(Server *server, int actor_id, Queue *input_queue) {
   while (1) {
     eventfd_t num_to_read;
-    int r = eventfd_read(queue_add_event_fd(context->input_queue), &num_to_read);
+    int r = eventfd_read(queue_add_event_fd(input_queue), &num_to_read);
     
     if (r == -1 || num_to_read == 0) {
       return;
     }
     
     for (eventfd_t i = 0 ;  i < num_to_read ; i++) {
-      RequestContext *request_context  = queue_pop(context->input_queue);
+      RequestContext *request_context  = queue_pop(input_queue);
       if (request_context == NULL) {
 	return;
       }
@@ -88,10 +84,15 @@ void process_epoll_event(int actor_id, ActorContext *context) {
       
       request_record_end(&request_context->time_stats, ACTOR_TIME);
 
-      /* starts tracking how long the item stays in the queue */
-      request_record_start(&request_context->time_stats, QUEUE_TIME);
-      enum QueueResult result = queue_push(context->output_queue, request_context);
-      CHECK(result != QUEUE_SUCCESS, "Failed to send request context back");
+      SocketContext *output_context = init_context(server, request_context->epoll_info);
+      output_context->data.ptr = request_context;
+      output_context->input_handler = NULL;
+      output_context->output_handler = client_handle_write;
+      //output_context->error_handler = client_handle_error;
+      
+      add_output_epoll_event(request_context->epoll_info,
+			     request_context->fd,
+			     output_context);
     }
   }
 }
@@ -105,16 +106,11 @@ void *run_actor(void *pthread_input) {
   LOG_INFO("Starting actor #%d", actor_info->id);
 
   const char *name = "actor-epoll";
-  EpollInfo *epoll_info = epoll_info_init(name);
+  EpollInfo *epoll_info = epoll_info_init(name, actor_info->id);
 
   for (int i = 0 ; i < actor_info->queue_count ; i++) {
-    ActorContext *context = CHECK_MEM(malloc(sizeof(ActorContext)));
-    context->id = i;
-    context->input_queue = actor_info->input_queue[i];
-    context->output_queue = actor_info->output_queue[i];
-    int event_fd = queue_add_event_fd(context->input_queue);
-    
-    add_input_epoll_event(epoll_info, event_fd, context);
+    int event_fd = queue_add_event_fd(actor_info->input_queue[i]);
+    add_input_epoll_event(epoll_info, event_fd, actor_info->input_queue[i]);
   }
 
   struct epoll_event events[MAX_EVENTS];
@@ -122,8 +118,8 @@ void *run_actor(void *pthread_input) {
     int ready_amount = epoll_wait(epoll_info->epoll_fd, events, MAX_EVENTS, -1);
     CHECK(ready_amount == -1, "Failed to wait on epoll");
     for (int i = 0 ; i < ready_amount ; i++) {
-      ActorContext *context = (ActorContext*) events[i].data.ptr;
-      process_epoll_event(actor_info->id, context);
+      Queue *input_queue = (Queue*) events[i].data.ptr;
+      process_epoll_event(actor_info->server, actor_info->id, input_queue);
     }
   }
   

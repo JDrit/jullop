@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "epoll_info.h"
 #include "http_request.h"
 #include "input_buffer.h"
 #include "output_buffer.h"
@@ -16,21 +17,6 @@ enum RequestResult {
   REQUEST_WRITE_ERROR,
 };
 
-enum RequestState {
-  INIT,
-  CLIENT_READ,
-  CLIENT_WRITE,
-  ACTOR_READ,
-  ACTOR_WRITE,
-  FINISH
-};
-
-enum EpollState {
-  EPOLL_NONE,
-  EPOLL_INPUT,
-  EPOLL_OUTPUT,
-};
-
 typedef struct RequestContext {
 
   /* the address of the client */
@@ -41,9 +27,6 @@ typedef struct RequestContext {
   /* the actor that processed the request */
   int actor_id;
 
-  /* used to keep track what the state of the file descriptor is in */
-  enum EpollState epoll_state;
-
   /* used to store the data read in from the client */
   InputBuffer *input_buffer;
 
@@ -53,10 +36,13 @@ typedef struct RequestContext {
   /* used to store the response that will be sent out to the client */
   OutputBuffer *output_buffer;
   
-  enum RequestState state;
-
   /* used to store the time spent on the request */
   TimeStats time_stats;
+
+  /* The io worker epoll event that for this request. Once the actor is done
+   * processing the request, they immediately register it on the output loop
+   * to skip a queue. */
+  EpollInfo *epoll_info;
   
 } RequestContext;
 
@@ -65,7 +51,7 @@ typedef struct RequestContext {
  * given file descriptor. The host_name is the name of the remote host
  * for the given client.
  */
-RequestContext *init_request_context(int fd, char* host_name);
+RequestContext *init_request_context(int fd, char* host_name, EpollInfo *epoll_info);
 
 /**
  * The number of bytes read as input from the client.

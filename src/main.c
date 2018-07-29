@@ -58,15 +58,13 @@ static int create_socket(uint16_t port, int queue_length) {
 
 void create_actor(Server *server, int id, ActorInfo *actor) {
   actor->id = id;
+  actor->server = server;
   actor->queue_count = server->io_worker_count;
   actor->startup = &server->startup;
   actor->input_queue = CHECK_MEM(malloc(((size_t) server->io_worker_count) * sizeof(size_t)));
-  actor->output_queue = CHECK_MEM(malloc(((size_t) server->io_worker_count) * sizeof(size_t)));
 
   for (int i = 0 ; i < server->io_worker_count ; i++) {
-    uint16_t queue_size = 2000;
-    actor->input_queue[i] = queue_init(queue_size);
-    actor->output_queue[i] = queue_init(queue_size);
+    actor->input_queue[i] = queue_init(1024);
   }
   
   pthread_t thread_id;
@@ -123,12 +121,21 @@ pthread_t create_stats(Server *server) {
 }
 
 int main(int argc, char* argv[]) {
-  uint16_t port = 8080;
   int queue_length = 10;
-  int io_worker_count = 2;
   int cores = get_nprocs();
   pid_t pid = getpid();
   
+  int io_worker_count;
+  uint16_t port;
+  
+  if (argc == 3) {
+    io_worker_count = atoi(argv[1]);
+    port = (uint16_t) atoi(argv[2]);
+  } else {
+    io_worker_count = 2;
+    port = 8080;
+  }
+      
   LOG_INFO("starting up pid=%d port=%d", pid, port);
 
   struct Server server;

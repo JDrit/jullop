@@ -10,6 +10,9 @@ typedef struct ActorInfo {
   /* unique identifier for the given actor. */
   int id;
 
+  /* reference to the global server config. */
+  struct Server *server;
+
   /* the number of input / output queues that this actor has. This
    * is equal to the number of IO workers in the system. */
   int queue_count;
@@ -17,10 +20,6 @@ typedef struct ActorInfo {
   /* All requests that are going to this actor should be put into
    * this queue. */
   Queue **input_queue;
-
-  /* The finished requests from the actor are inserted into this
-   * queue. */
-  Queue **output_queue;
 
   /* this is just a reference to the pthread_barrier_t owned by the
    * server struct. */

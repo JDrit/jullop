@@ -52,10 +52,11 @@ static enum ReadState try_parse_http_request(RequestContext *request_context) {
 
 static size_t count = 0;
 
-bool client_read_request(Server *server, EpollInfo *epoll_info, int id,
-			 IoContext *io_context) {
+void client_handle_read(SocketContext *context) {
+  Server *server = context->server;
+  EpollInfo *epoll_info = context->epoll_info;
+  RequestContext *request_context = (RequestContext*) context->data.ptr;
   
-  RequestContext *request_context = io_context->context.request_context;
   request_record_start(&request_context->time_stats, CLIENT_READ_TIME);
   enum ReadState state = try_parse_http_request(request_context);
   request_record_end(&request_context->time_stats, CLIENT_READ_TIME);
@@ -65,47 +66,39 @@ bool client_read_request(Server *server, EpollInfo *epoll_info, int id,
     /* We have to deregister the file descriptor from the event loop 
      * before we send it off or a race condition could cause it to be
      * closed before the input actor finishes deleting the event. */
-    if (request_context->epoll_state != EPOLL_NONE) {
-      request_context->epoll_state = EPOLL_NONE;
-      delete_epoll_event(epoll_info, request_context->fd);
-    }
-
-    /* the next stage of the pipline is to forward the request to the
-     * actor. */
-    request_context->state = ACTOR_WRITE;
+    delete_epoll_event(epoll_info, request_context->fd);
 
     size_t actor_id = (count++) % (size_t) server->actor_count;
 
     //todo fix this not to be blocking
     ActorInfo *actor_info = &server->app_actors[actor_id];
-    Queue *input_queue = actor_info->input_queue[id];
+    Queue *input_queue = actor_info->input_queue[epoll_info->id];
 
     request_record_start(&request_context->time_stats, QUEUE_TIME);
     enum QueueResult queue_result = queue_push(input_queue, request_context);
     CHECK(queue_result != QUEUE_SUCCESS, "Failed to send message");
-    
-    free(io_context);
-    return true;
+
+    /* cleans up the context that was used for reading data in. */
+    free(context);
+
+    return;
   }
   case READ_ERROR:
-    request_context->state = FINISH;
-    client_close_connection(server, epoll_info, io_context, REQUEST_READ_ERROR);
-    return true;
+    client_close_connection(context, REQUEST_READ_ERROR);    
+    return;
   case CLIENT_DISCONNECT:
-    request_context->state = FINISH;
-    client_close_connection(server, epoll_info, io_context, REQUEST_CLIENT_ERROR);
-    return true;
+    client_close_connection(context, REQUEST_CLIENT_ERROR);
+    return;
   case READ_BUSY:
     // there is still more to read off of the client request, for now go
     // back onto the event loop
-    return false;
+    return;
   }
 }
 
-bool client_write_response(Server *server, EpollInfo *epoll_info,
-			   IoContext *io_context) {
-  RequestContext *request_context = io_context->context.request_context;
-  
+void client_handle_write(SocketContext *context) {
+  RequestContext *request_context = (RequestContext*) context->data.ptr;
+    
   request_record_start(&request_context->time_stats, CLIENT_WRITE_TIME);
   enum WriteState state = output_buffer_write_to(request_context->output_buffer,
 						 request_context->fd);
@@ -114,26 +107,42 @@ bool client_write_response(Server *server, EpollInfo *epoll_info,
   switch (state) {
   case WRITE_BUSY:
     LOG_DEBUG("client write socket busy");
-    return false;
+    return;
   case WRITE_ERROR:
     LOG_WARN("Error while writing response to client");
-    client_close_connection(server, epoll_info, io_context, REQUEST_WRITE_ERROR);
-    return true;
+    client_close_connection(context, REQUEST_WRITE_ERROR);
+    return;
   case WRITE_FINISH:
-    request_context->state = FINISH;
-
     if (context_keep_alive(request_context) == 1) {
-      client_reset_connection(server, epoll_info, io_context, REQUEST_SUCCESS);
+      client_reset_connection(context, REQUEST_SUCCESS);
     } else {
-      client_close_connection(server, epoll_info, io_context, REQUEST_SUCCESS);
+      client_close_connection(context, REQUEST_SUCCESS);
     }
-    return true;
+    return;
   }
 }
 
-void client_reset_connection(Server *server, EpollInfo *epoll_info,
-			     IoContext *io_context, enum RequestResult result) {
-  RequestContext *request_context = io_context->context.request_context;
+void client_handle_error(SocketContext *context, uint32_t events) {
+
+  if (events & EPOLLERR) {
+    LOG_WARN("Error due to read size of socket closing");
+  } else if (events & EPOLLHUP) {
+    LOG_WARN("Error due to hang up on file descriptor");    
+  } else if (events & EPOLLRDHUP) {
+    LOG_WARN("Error due to peer closed connection");
+  } else if (events & EPOLLPRI) {
+    LOG_WARN("Error due to uknown issue");
+  }
+
+  context_print_finish((RequestContext*) context->data.ptr, REQUEST_EPOLL_ERROR);
+  
+  client_close_connection(context, REQUEST_EPOLL_ERROR);
+}
+
+void client_reset_connection(SocketContext *context, enum RequestResult result) {
+  Server *server = context->server;
+  EpollInfo *epoll_info = context->epoll_info;
+  RequestContext *request_context = context->data.ptr;
 
   stats_incr_total(server->stats);
  
@@ -145,24 +154,18 @@ void client_reset_connection(Server *server, EpollInfo *epoll_info,
 
   request_record_start(&request_context->time_stats, TOTAL_TIME);
 
-  request_context->epoll_state = EPOLL_INPUT;
-  switch (request_context->epoll_state) {
-  case EPOLL_INPUT:
-    break;
-  case EPOLL_OUTPUT:
-    mod_input_epoll_event(epoll_info, request_context->fd, io_context);
-    break;
-  case EPOLL_NONE:
-    add_input_epoll_event(epoll_info, request_context->fd, io_context);
-    break;
-  }
+  /* resets the context to start accept input from client again. */
+  context->input_handler = client_handle_read;
+  context->output_handler = NULL;
+  context->error_handler = client_handle_error;
+
+  mod_input_epoll_event(epoll_info, request_context->fd, context);
 }
 
-
-void client_close_connection(Server *server, EpollInfo *epoll_info,
-			     IoContext *io_context, enum RequestResult result) {
-  
-  RequestContext *request_context = io_context->context.request_context;
+void client_close_connection(SocketContext *context, enum RequestResult result) {
+  Server *server = context->server;
+  EpollInfo *epoll_info = context->epoll_info;
+  RequestContext *request_context = (RequestContext*) context->data.ptr;
 
   stats_decr_active(server->stats);
   stats_incr_total(server->stats);
@@ -170,12 +173,9 @@ void client_close_connection(Server *server, EpollInfo *epoll_info,
   // log the timestamp at which the request is done
   request_record_end(&request_context->time_stats, TOTAL_TIME);
 
-  if (request_context->epoll_state != EPOLL_NONE) {
-    request_context->epoll_state = EPOLL_NONE;
-    delete_epoll_event(epoll_info, request_context->fd);
-  }
+  delete_epoll_event(epoll_info, request_context->fd);
 
   // finishes up the request
-  context_finalize_destroy(request_context, result);  
-  free(io_context);
+  context_finalize_destroy(request_context, result);
+  free(context);
 }

@@ -1,19 +1,32 @@
 #ifndef __input_actor_h__
 #define __input_actor_h__
 
-#include <stdatomic.h>
-
+#include "epoll_info.h"
 #include "request_context.h"
 #include "server.h"
 
-typedef struct IoWorkerStats {
-    /* The number of currently open connections */
-  _Atomic size_t active_connections;
+typedef struct SocketContext {
+  /* called when epoll detects the given file descriptor has data
+   * ready to be read. */
+  void (*input_handler) (struct SocketContext *context);
 
-  /* The total number of requests that have been handled cumulatively */
-  _Atomic size_t total_requests_processed;
+  /* called when epoll detects the given file descriptor is 
+   * ready to be written to. */
+  void (*output_handler) (struct SocketContext *context);
 
-} IoWorkerStats;
+  /* called when epoll detects an error on the given file
+   * descriptor. */
+  void (*error_handler) (struct SocketContext *context, uint32_t events);
+
+
+  union data {
+    int fd;
+    void *ptr;
+  } data;
+  
+  Server *server;
+  EpollInfo *epoll_info;  
+} SocketContext;
 
 typedef struct IoWorkerArgs {
   /* unique ID of the worker */
@@ -24,35 +37,7 @@ typedef struct IoWorkerArgs {
   Server *server;
 } IoWorkerArgs;
 
-typedef struct ActorContext {
-  /* the id of the actor. */
-  int id;
-  /* the event file descriptor used for messages from the actor. */
-  int fd;
-  /* the queue to receieve events back from the actor. */
-  Queue *queue;
-} ActorContext;
-
-typedef struct AcceptContext {
-  /* the file descriptor to listen for new connections on. */
-  int fd;
-} AcceptContext;
-
-typedef struct IoContext {
-
-  enum type {
-    CLIENT,
-    ACTOR,
-    ACCEPT,
-  } type;
-
-  union context {
-    RequestContext *request_context;
-    ActorContext *actor_context;
-    AcceptContext *accept_context;
-  } context;
-  
-} IoContext;
+SocketContext *init_context(Server *server, EpollInfo *epoll_info);
 
 /**
  * Runs the event loop in the current thread to process
