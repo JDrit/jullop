@@ -22,9 +22,9 @@ add_library(jullop STATIC
   output_buffer.c
   picohttpparser.c
   request_context.c
-  stats.c
-  stats_thread.c
-  time_stats.c)
+  request_stats.c
+  server_stats.c
+  stats_thread.c)
 target_compile_options(jullop PRIVATE
   -std=gnu11 -g -O3 -Wall -Wextra -Wconversion -fno-builtin-malloc
   -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free

@@ -1,11 +1,13 @@
 #define _GNU_SOURCE
 
+#include <locale.h>
 #include <unistd.h>
 
 #include "logging.h"
 #include "queue.h"
+#include "request_stats.h"
 #include "server.h"
-#include "stats.h"
+#include "server_stats.h"
 
 static size_t queue_usage(Server *server) {
   size_t size = 0;
@@ -22,12 +24,19 @@ void *stats_loop(void *pthread_input) {
 
   while (1) {
     sleep(5);
-
-    LOG_INFO("-------------------------------------------------------");
-    LOG_INFO("Stats: total: %lu active: %lu queue: %lu",
-	     stats_get_total(server->stats),
-	     stats_get_active(server->stats),
-	     queue_usage(server));
+    setlocale(LC_NUMERIC, "");
+    LOG_INFO("-------------------------------------------------------\n"
+	     "Stats : total requests: %'lu active requests: %'lu queue size: %lu\n"
+             "Time  : total: %'.0lfus client read: %'.0lfus client write: %'.0lfus "
+	     "actor: %'.0lfus queue: %'.0lfus",
+	     server_stats_get_total_requests(server->server_stats),
+	     server_stats_get_active_requests(server->server_stats),
+	     queue_usage(server),
+	     server_stats_get_time(server->server_stats, TOTAL_TIME),
+	     server_stats_get_time(server->server_stats, CLIENT_READ_TIME),
+	     server_stats_get_time(server->server_stats, CLIENT_WRITE_TIME),
+	     server_stats_get_time(server->server_stats, ACTOR_TIME),
+	     server_stats_get_time(server->server_stats, QUEUE_TIME));
   }
 
   return NULL;

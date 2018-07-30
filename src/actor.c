@@ -17,8 +17,8 @@
 #include "logging.h"
 #include "queue.h"
 #include "request_context.h"
+#include "request_stats.h"
 #include "server.h"
-#include "time_stats.h"
 
 #define MAX_EVENTS 10
 
@@ -75,14 +75,14 @@ void process_epoll_event(Server *server, int actor_id, Queue *input_queue) {
       }
       request_context->actor_id = actor_id;
       /* starts tracking how long the item stays in the queue */
-      request_record_end(&request_context->time_stats, QUEUE_TIME);
+      per_request_record_end(&request_context->time_stats, QUEUE_TIME);
       
       /* process the actor request and generate a response. */
-      request_record_start(&request_context->time_stats, ACTOR_TIME);
+      per_request_record_start(&request_context->time_stats, ACTOR_TIME);
       
       handle_request(request_context);
       
-      request_record_end(&request_context->time_stats, ACTOR_TIME);
+      per_request_record_end(&request_context->time_stats, ACTOR_TIME);
 
       SocketContext *output_context = init_context(server, request_context->epoll_info);
       output_context->data.ptr = request_context;

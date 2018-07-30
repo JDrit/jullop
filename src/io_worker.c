@@ -23,7 +23,7 @@
 #include "output_buffer.h"
 #include "queue.h"
 #include "request_context.h"
-#include "time_stats.h"
+#include "request_stats.h"
 
 #define MAX_EVENTS 4096
 
@@ -65,11 +65,11 @@ void handle_accept_read(SocketContext *context) {
     CHECK(r == -1, "Failed to get host name");
     
     /* increments the counter of the total active requests. */
-    stats_incr_active(context->server->stats);
+    server_stats_incr_active_requests(context->server->server_stats);
 
     RequestContext *request_context = init_request_context(conn_sock, hbuf,
 							   context->epoll_info);
-    request_record_start(&request_context->time_stats, TOTAL_TIME);
+    per_request_record_start(&request_context->time_stats, TOTAL_TIME);
     
     SocketContext *connection_context = init_context(context->server, context->epoll_info);
     connection_context->data.ptr = request_context;

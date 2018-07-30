@@ -12,8 +12,9 @@
 #include "output_buffer.h"
 #include "queue.h"
 #include "request_context.h"
+#include "request_stats.h"
 #include "server.h"
-#include "time_stats.h"
+#include "server_stats.h"
 
 /**
  * Reads data off of the client's file descriptor and attempts to parse a HTTP
@@ -57,9 +58,9 @@ void client_handle_read(SocketContext *context) {
   EpollInfo *epoll_info = context->epoll_info;
   RequestContext *request_context = (RequestContext*) context->data.ptr;
   
-  request_record_start(&request_context->time_stats, CLIENT_READ_TIME);
+  per_request_record_start(&request_context->time_stats, CLIENT_READ_TIME);
   enum ReadState state = try_parse_http_request(request_context);
-  request_record_end(&request_context->time_stats, CLIENT_READ_TIME);
+  per_request_record_end(&request_context->time_stats, CLIENT_READ_TIME);
 
   switch (state) {
   case READ_FINISH: {
@@ -74,7 +75,7 @@ void client_handle_read(SocketContext *context) {
     ActorInfo *actor_info = &server->app_actors[actor_id];
     Queue *input_queue = actor_info->input_queue[epoll_info->id];
 
-    request_record_start(&request_context->time_stats, QUEUE_TIME);
+    per_request_record_start(&request_context->time_stats, QUEUE_TIME);
     enum QueueResult queue_result = queue_push(input_queue, request_context);
     CHECK(queue_result != QUEUE_SUCCESS, "Failed to send message");
 
@@ -99,10 +100,10 @@ void client_handle_read(SocketContext *context) {
 void client_handle_write(SocketContext *context) {
   RequestContext *request_context = (RequestContext*) context->data.ptr;
     
-  request_record_start(&request_context->time_stats, CLIENT_WRITE_TIME);
+  per_request_record_start(&request_context->time_stats, CLIENT_WRITE_TIME);
   enum WriteState state = output_buffer_write_to(request_context->output_buffer,
 						 request_context->fd);
-  request_record_end(&request_context->time_stats, CLIENT_WRITE_TIME);
+  per_request_record_end(&request_context->time_stats, CLIENT_WRITE_TIME);
   
   switch (state) {
   case WRITE_BUSY:
@@ -142,15 +143,16 @@ void client_reset_connection(SocketContext *context, enum RequestResult result) 
   EpollInfo *epoll_info = context->epoll_info;
   RequestContext *request_context = context->data.ptr;
 
-  stats_incr_total(server->stats);
- 
   // log the timestamp at which the request is done
-  request_record_end(&request_context->time_stats, TOTAL_TIME);
-  
+  per_request_record_end(&request_context->time_stats, TOTAL_TIME);
+
+  server_stats_incr_total_requests(server->server_stats);
+  server_stats_record_request(server->server_stats, &request_context->time_stats);
+   
   // finishes up the request
   context_finalize_reset(request_context, result);
 
-  request_record_start(&request_context->time_stats, TOTAL_TIME);
+  per_request_record_start(&request_context->time_stats, TOTAL_TIME);
 
   /* resets the context to start accept input from client again. */
   context->input_handler = client_handle_read;
@@ -165,12 +167,13 @@ void client_close_connection(SocketContext *context, enum RequestResult result) 
   EpollInfo *epoll_info = context->epoll_info;
   RequestContext *request_context = (RequestContext*) context->data.ptr;
 
-  stats_decr_active(server->stats);
-  stats_incr_total(server->stats);
-  
   // log the timestamp at which the request is done
-  request_record_end(&request_context->time_stats, TOTAL_TIME);
-
+  per_request_record_end(&request_context->time_stats, TOTAL_TIME);
+  
+  server_stats_decr_active_requests(server->server_stats);
+  server_stats_incr_total_requests(server->server_stats);
+  server_stats_record_request(server->server_stats, &request_context->time_stats);
+  
   delete_epoll_event(epoll_info, request_context->fd);
 
   // finishes up the request

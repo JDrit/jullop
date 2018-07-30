@@ -3,7 +3,7 @@
 
 #include <pthread.h>
 
-#include "stats.h"
+#include "server_stats.h"
 #include "queue.h"
 
 typedef struct ActorInfo {
@@ -28,7 +28,7 @@ typedef struct ActorInfo {
 } ActorInfo;
 
 typedef struct Server {
-  Stats *stats;
+  ServerWideStats *server_stats;
   
   /* the number of threads used to read/write client requests. */
   int io_worker_count;

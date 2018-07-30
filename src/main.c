@@ -21,7 +21,7 @@
 #include "queue.h"
 #include "request_context.h"
 #include "server.h"
-#include "stats.h"
+#include "server_stats.h"
 #include "stats_thread.h"
 
 static int create_socket(uint16_t port, int queue_length) {
@@ -139,7 +139,7 @@ int main(int argc, char* argv[]) {
   LOG_INFO("starting up pid=%d port=%d", pid, port);
 
   struct Server server;
-  server.stats = stats_init();
+  server.server_stats = server_stats_init();
   server.io_worker_count = io_worker_count;
   server.actor_count = cores;
   server.app_actors = (ActorInfo*) CHECK_MEM(calloc((size_t) cores, sizeof(ActorInfo)));

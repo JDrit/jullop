@@ -9,7 +9,6 @@
 
 #include "logging.h"
 #include "queue.h"
-#include "time_stats.h"
 
 typedef struct Queue {
   /* the max amount of elements allowed in the mailbox. */

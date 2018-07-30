@@ -12,8 +12,8 @@
 #include "logging.h"
 #include "output_buffer.h"
 #include "request_context.h"
+#include "request_stats.h"
 #include "server.h"
-#include "time_stats.h"
 
 #define BUF_SIZE 1024
 
@@ -45,7 +45,7 @@ RequestContext *init_request_context(int fd, char* host_name, EpollInfo* epoll_i
   context->output_buffer = output_buffer_init(BUF_SIZE);
 
   context->http_request.num_headers = NUM_HEADERS;
-  request_clear_time(&context->time_stats);
+  per_request_clear_time(&context->time_stats);
 
   context->epoll_info = epoll_info;
   
@@ -90,7 +90,7 @@ int context_keep_alive(RequestContext *context) {
 }
 
 void context_print_finish(RequestContext *context, enum RequestResult result) {  
-  LOG_INFO("\n"
+  LOG_DEBUG("\n"
 	   "Request Stats : result=%s fd=%d remote_host=%s actor=%d "
 	   "bytes_read=%zu bytes_written=%zu\n"
 	   "Time Stats    : total_micros=%ld client_read_micros=%ld "
@@ -101,11 +101,11 @@ void context_print_finish(RequestContext *context, enum RequestResult result) {
 	   context->actor_id,
 	   context->input_buffer->offset,
 	   context->output_buffer->write_into_offset,
-	   request_get_time(&context->time_stats, TOTAL_TIME),
-	   request_get_time(&context->time_stats, CLIENT_READ_TIME),
-	   request_get_time(&context->time_stats, ACTOR_TIME),
-	   request_get_time(&context->time_stats, CLIENT_WRITE_TIME),
-	   request_get_time(&context->time_stats, QUEUE_TIME));
+	   per_request_get_time(&context->time_stats, TOTAL_TIME),
+	   per_request_get_time(&context->time_stats, CLIENT_READ_TIME),
+	   per_request_get_time(&context->time_stats, ACTOR_TIME),
+	   per_request_get_time(&context->time_stats, CLIENT_WRITE_TIME),
+	   per_request_get_time(&context->time_stats, QUEUE_TIME));
 }
 
 void context_finalize_reset(RequestContext *context, enum RequestResult result) {
@@ -117,7 +117,7 @@ void context_finalize_reset(RequestContext *context, enum RequestResult result) 
   input_buffer_reset(context->input_buffer);
   output_buffer_reset(context->output_buffer);
   
-  request_clear_time(&context->time_stats);
+  per_request_clear_time(&context->time_stats);
 }
 
 void context_finalize_destroy(RequestContext *context, enum RequestResult result) {

@@ -2,9 +2,10 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #include "logging.h"
-#include "time_stats.h"
+#include "request_stats.h"
 
 static inline const char *time_name(enum TimeType type) {
   switch (type) {
@@ -24,7 +25,7 @@ static inline const char *time_name(enum TimeType type) {
 }
 
 static inline void get_time(struct timespec *time_spec) {
-  clock_gettime(CLOCK_PROCESS_CPUTIME_ID, time_spec);
+  clock_gettime(CLOCK_MONOTONIC, time_spec);
 }
 
 static inline time_t get_time_delta(struct timespec *start_time,
@@ -36,32 +37,41 @@ static inline time_t get_time_delta(struct timespec *start_time,
   return microseconds;  
 }
 
-void request_clear_time(TimeStats *time_stats) {
-  time_stats->is_time_set = 0;
+void per_request_clear_time(PerRequestStats *stats) {
+  stats->is_time_set = 0;
+  memset(stats->start, 0, sizeof(struct timespec) * 5);
+  memset(stats->total_micros, 0, sizeof(time_t) * 5);
+}
+bool per_request_is_time_set(PerRequestStats *stats, enum TimeType type) {
+  if ((stats->is_time_set & (1 << type)) != 0) {
+    return true;
+  } else {
+    return false;
+  }
 }
 
-void request_record_start(TimeStats *time_stats, enum TimeType type) {
-  CHECK((time_stats->is_time_set & (1 << type)) != 0,
+void per_request_record_start(PerRequestStats *stats, enum TimeType type) {
+  CHECK((stats->is_time_set & (1 << type)) != 0,
 	"start time already set for %s", time_name(type));
-  time_stats->is_time_set |= (1 << type);
+  stats->is_time_set |= (1 << type);
 
-  get_time(&time_stats->start[type]);
+  get_time(&stats->start[type]);
 }
 
-void request_record_end(TimeStats *time_stats, enum TimeType type) {
-  CHECK((time_stats->is_time_set & (1 << type)) == 0,
+void per_request_record_end(PerRequestStats *stats, enum TimeType type) {
+  CHECK((stats->is_time_set & (1 << type)) == 0,
 	"start time not set for %s", time_name(type));
 
   // resets the check
-  time_stats->is_time_set &= ~(1 << type);
+  stats->is_time_set &= ~(1 << type);
   
-  struct timespec start = time_stats->start[type];
+  struct timespec start = stats->start[type];
   struct timespec end;
   get_time(&end);
 
-  time_stats->total_micros[type] += get_time_delta(&start, &end);
+  stats->total_micros[type] += get_time_delta(&start, &end);
 }
 
-time_t request_get_time(TimeStats *time_stats, enum TimeType type) {
-  return time_stats->total_micros[type];
+time_t per_request_get_time(PerRequestStats *stats, enum TimeType type) {
+  return stats->total_micros[type];
 }

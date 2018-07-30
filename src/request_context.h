@@ -7,7 +7,7 @@
 #include "http_request.h"
 #include "input_buffer.h"
 #include "output_buffer.h"
-#include "time_stats.h"
+#include "request_stats.h"
 
 enum RequestResult {
   REQUEST_SUCCESS,
@@ -37,7 +37,7 @@ typedef struct RequestContext {
   OutputBuffer *output_buffer;
   
   /* used to store the time spent on the request */
-  TimeStats time_stats;
+  PerRequestStats time_stats;
 
   /* The io worker epoll event that for this request. Once the actor is done
    * processing the request, they immediately register it on the output loop
